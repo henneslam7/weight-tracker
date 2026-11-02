@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f8fafc;
+  --fg: #0f172a;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS：輸入框字體 < 16px 會自動放大，所以統一 16px */
+input,
+select,
+button {
+  font-size: 16px;
+}
