@@ -25,6 +25,19 @@ export const FAT_CALORIE_RATIO = 0.25;
 /** 目標體重嘅 BMI 下限（減脂時用嚟擋極端目標） */
 export const MIN_TARGET_BMI = 18.5;
 
+/** 65 歲或以上較保守嘅設定（設計預設，唔係醫療標準，建議同醫生或註冊營養師確認） */
+export const SENIOR_AGE = 65;
+export const SENIOR = {
+  maxDeficitRatio: 0.15,
+  rateMax: 0.25,
+  proteinGPerKg: 1.2,
+  minTargetBmi: 22,
+} as const;
+
+export function isSenior(age: number): boolean {
+  return age >= SENIOR_AGE;
+}
+
 // ───────────── 基本公式 ─────────────
 
 export function ageOn(birthDate: string, today: string): number {
@@ -54,9 +67,11 @@ export function calcBmi(weightKg: number, heightCm: number): number {
   return weightKg / (m * m);
 }
 
-export function clampRate(goal: Goal, rate: number | null): number {
+export function clampRate(goal: Goal, rate: number | null, age?: number): number {
   if (goal === "maintain") return 0;
-  const { min, max } = RATE_LIMITS[goal];
+  const { min, max: baseMax } = RATE_LIMITS[goal];
+  // 65 歲或以上，每週速度上限壓低（最少都係 min）
+  const max = age !== undefined && isSenior(age) ? Math.max(min, Math.min(baseMax, SENIOR.rateMax)) : baseMax;
   const r = rate ?? 0.5;
   return Math.min(max, Math.max(min, r));
 }
@@ -74,6 +89,8 @@ export interface Plan {
   bmr: number;
   tdee: number;
   targetCalories: number;
+  /** 65 歲或以上：用較保守嘅赤字、速度同蛋白質 */
+  senior: boolean;
   /** 每日相對 TDEE 嘅差額（負數 = 赤字） */
   dailyDeltaKcal: number;
   /** 實際採用嘅每週速度（kg，已計安全限制） */
@@ -103,17 +120,23 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
   const notes: string[] = [];
   let target = tdee;
 
+  const senior = isSenior(age);
+  if (senior && profile.goal !== "maintain") {
+    notes.push("你屬 65 歲或以上，目標已用較保守嘅速度同赤字計算。減重前請先同醫生或註冊營養師傾。");
+  }
+
   if (profile.goal === "lose") {
-    const rate = clampRate("lose", profile.weekly_rate_kg);
+    const rate = clampRate("lose", profile.weekly_rate_kg, age);
     if (profile.weekly_rate_kg !== null && rate !== profile.weekly_rate_kg) {
-      notes.push("每週速度已調整至安全範圍（0.25–0.75 kg）。");
+      notes.push(`每週速度已調整至安全範圍（0.25–${senior ? SENIOR.rateMax : 0.75} kg）。`);
     }
     const requested = (rate * KCAL_PER_KG) / 7;
-    const cap = tdee * MAX_DEFICIT_RATIO;
+    const ratio = senior ? SENIOR.maxDeficitRatio : MAX_DEFICIT_RATIO;
+    const cap = tdee * ratio;
     let deficit = requested;
     if (requested > cap) {
       deficit = cap;
-      notes.push("每日赤字已限制喺 TDEE 嘅 25% 以內。");
+      notes.push(`每日赤字已限制喺 TDEE 嘅 ${Math.round(ratio * 100)}% 以內。`);
     }
     target = tdee - deficit;
   } else if (profile.goal === "gain") {
@@ -137,7 +160,7 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
   const dailyDeltaKcal = targetCalories - Math.round(tdee);
   const weeklyRateKg = Math.round(((dailyDeltaKcal * 7) / KCAL_PER_KG) * 100) / 100;
 
-  const proteinG = Math.round(PROTEIN_G_PER_KG * weightKg);
+  const proteinG = Math.round((senior ? SENIOR.proteinGPerKg : PROTEIN_G_PER_KG) * weightKg);
   const fatG = Math.round((targetCalories * FAT_CALORIE_RATIO) / 9);
   const carbsG = Math.max(
     0,
@@ -148,6 +171,7 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
     ok: true,
     plan: {
       age,
+      senior,
       bmr: Math.round(bmr),
       tdee: Math.round(tdee),
       targetCalories,
@@ -196,8 +220,9 @@ export function validateProfile({
     if (currentWeightKg !== null && t >= currentWeightKg) {
       return "減脂嘅目標體重要低過現時體重。";
     }
-    if (calcBmi(t, profile.height_cm) < MIN_TARGET_BMI) {
-      return "目標體重偏低（BMI 低過 18.5），唔建議以此為目標。如有疑問，請向醫生或註冊營養師查詢。";
+    const minBmi = isSenior(ageOn(profile.birth_date, today)) ? SENIOR.minTargetBmi : MIN_TARGET_BMI;
+    if (calcBmi(t, profile.height_cm) < minBmi) {
+      return `目標體重偏低（BMI 低過 ${minBmi}），唔建議以此為目標。如有疑問，請向醫生或註冊營養師查詢。`;
     }
   }
   if (profile.goal === "gain" && currentWeightKg !== null && t <= currentWeightKg) {

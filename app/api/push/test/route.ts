@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     for (const s of subs) {
       const r = await sendPush(s, {
         title: APP_NAME,
-        body: "測試成功！以後提醒你記錄食物同體重，一齊 fit 過林峯。",
+        body: "測試成功！以後陳伯同歡嬸會喺度提醒你記低食咩。",
         url: "/",
         tag: "test",
       });

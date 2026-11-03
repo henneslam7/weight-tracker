@@ -17,7 +17,7 @@ function Bar({ label, value, target, unit }: { label: string; value: number; tar
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
         <div
-          className={`h-full rounded-full ${over ? "bg-amber-400" : "bg-emerald-500"}`}
+          className={`h-full rounded-full ${over ? "bg-amber-400" : "bg-teal-700"}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -41,7 +41,7 @@ export default function IntakeProgress({ plan, totals, exerciseBurned = 0 }: Pro
   return (
     <div className="space-y-3">
       <div className="text-center">
-        <div className="text-3xl font-bold text-emerald-600">
+        <div className="text-3xl font-bold text-teal-700">
           {totals.calories}
           <span className="text-base font-normal text-slate-400"> / {b.calories} kcal</span>
         </div>

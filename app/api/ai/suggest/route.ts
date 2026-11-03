@@ -18,7 +18,7 @@ import type { Profile } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-const DEFAULT_DAILY_LIMIT = 30;
+const DEFAULT_DAILY_LIMIT = 20;
 
 function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });

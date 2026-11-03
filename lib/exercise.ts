@@ -61,7 +61,13 @@ export function sumBurned(logs: readonly { calories: number }[]): number {
   return logs.reduce((s, l) => s + l.calories, 0);
 }
 
+/** 65 歲或以上：只加返一半，每日最多 500 kcal */
+export const SENIOR_CREDIT_RATIO = 0.5;
+export const SENIOR_CREDIT_CAP = 500;
+
 /** 今日運動消耗，有幾多加返入上限 */
-export function creditFor(burnedKcal: number): number {
-  return Math.min(EXERCISE_CREDIT_CAP, Math.max(0, Math.round(burnedKcal * EXERCISE_CREDIT_RATIO)));
+export function creditFor(burnedKcal: number, senior = false): number {
+  const ratio = senior ? SENIOR_CREDIT_RATIO : EXERCISE_CREDIT_RATIO;
+  const cap = senior ? SENIOR_CREDIT_CAP : EXERCISE_CREDIT_CAP;
+  return Math.min(cap, Math.max(0, Math.round(burnedKcal * ratio)));
 }

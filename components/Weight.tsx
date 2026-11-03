@@ -99,7 +99,7 @@ export default function Weight({ userId, logs, targetKg, onChanged }: Props) {
         </div>
         {error && <p className={errorBox}>{error}</p>}
         {ok && (
-          <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{ok}</p>
+          <p className="rounded-xl bg-teal-50 p-3 text-sm text-teal-800">{ok}</p>
         )}
         <button className={btnPrimary} disabled={busy}>
           {busy ? "儲存中…" : "儲存"}

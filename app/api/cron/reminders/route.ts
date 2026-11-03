@@ -1,6 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { ageOn } from "@/lib/calc";
 import { nowInZone } from "@/lib/date";
+import { normalizePrefs } from "@/lib/persona";
 import { DEFAULT_SETTINGS, decideReminders, type ReminderSettings } from "@/lib/reminders";
 import { createAdmin } from "@/lib/server/admin";
 import { sendPush } from "@/lib/server/push";
@@ -31,11 +33,15 @@ async function run(req: Request) {
   const { date, time } = nowInZone();
 
   // 有開通知（有訂閱）嘅用戶先處理。未儲存過設定就用預設值，唔使撳「儲存設定」都收到提醒。
-  const [subsAll, settingsAll] = await Promise.all([
+  const [subsAll, settingsAll, prefsAll, profilesAll] = await Promise.all([
     admin.from("push_subscriptions").select("id, user_id, endpoint, p256dh, auth"),
     admin.from("reminder_settings").select("*"),
+    admin.from("user_prefs").select("*"),          // 未建立（未跑 schema_persona.sql）就用預設
+    admin.from("profiles").select("user_id, birth_date"),
   ]);
   if (subsAll.error || settingsAll.error) return json({ error: "server" }, 500);
+  const prefsByUser = new Map((prefsAll.error ? [] : prefsAll.data ?? []).map((r) => [r.user_id as string, r]));
+  const birthByUser = new Map((profilesAll.error ? [] : profilesAll.data ?? []).map((r) => [r.user_id as string, r.birth_date as string]));
 
   const subsByUser = new Map<string, NonNullable<typeof subsAll.data>>();
   for (const s of subsAll.data ?? []) {
@@ -82,7 +88,14 @@ async function run(req: Request) {
     );
     const lastLogDate = lastDates.length ? lastDates.sort().at(-1)! : null;
 
+    // 語氣：按每人設定；65 歲或以上一律溫柔
+    const birth = birthByUser.get(userId);
+    const age = birth ? ageOn(birth, date) : null;
+    const prefs = normalizePrefs(prefsByUser.get(userId) ?? null, age);
+    const tone = age !== null && age >= 65 ? "soft" : prefs.tone;
+
     const due = decideReminders({
+      tone,
       nowDate: date,
       nowTime: time,
       settings,

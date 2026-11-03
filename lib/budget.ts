@@ -19,7 +19,7 @@ export interface DayBudget {
 
 /** 運動加成嘅 calories 全數撥入碳水（蛋白質、脂肪目標唔變） */
 export function dayBudget(plan: Plan, exerciseBurned: number): DayBudget {
-  const credit = creditFor(exerciseBurned);
+  const credit = creditFor(exerciseBurned, plan.senior);
   return {
     baseCalories: plan.targetCalories,
     exerciseBurned,

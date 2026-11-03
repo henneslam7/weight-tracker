@@ -50,7 +50,7 @@ export default function Calculator({
         {plan && (
           <>
             <div className="my-3 text-center">
-              <div className="text-4xl font-bold text-emerald-600">
+              <div className="text-4xl font-bold text-teal-700">
                 {plan.targetCalories}
               </div>
               <div className="text-sm text-slate-500">kcal ／ 日</div>

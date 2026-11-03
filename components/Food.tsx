@@ -7,7 +7,8 @@ import { sumBurned } from "@/lib/exercise";
 import { addDays, formatShort, toDateStr } from "@/lib/date";
 import { defaultMealType, MEAL_LABEL, MEAL_TYPES, sumFood } from "@/lib/food";
 import { getSupabase } from "@/lib/supabase";
-import type { FoodLog, MealType } from "@/lib/types";
+import { effectiveTone, roastAllowed, type SensitiveReason } from "@/lib/persona";
+import type { FoodLog, MealType, UserPrefs } from "@/lib/types";
 import FoodAdd from "./FoodAdd";
 import IntakeProgress from "./IntakeProgress";
 import MealSuggest from "./MealSuggest";
@@ -17,11 +18,15 @@ interface Props {
   userId: string;
   plan: Plan | null;
   initialMeal: MealType | null;
+  prefs: UserPrefs;
+  reason: SensitiveReason | null;
+  /** 今日仲剩幾多 kcal（未有目標就 null） */
+  remainingKcal: number | null;
   /** 改動後通知父層重新載入「今日」食物 */
   onChanged: () => void;
 }
 
-export default function Food({ userId, plan, initialMeal, onChanged }: Props) {
+export default function Food({ userId, plan, initialMeal, prefs, reason, remainingKcal, onChanged }: Props) {
   const today = toDateStr();
   const [date, setDate] = useState(today);
   const [logs, setLogs] = useState<FoodLog[]>([]);
@@ -30,6 +35,7 @@ export default function Food({ userId, plan, initialMeal, onChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [meal, setMeal] = useState<MealType>(initialMeal ?? defaultMealType(new Date().getHours()));
   const [adding, setAdding] = useState(initialMeal !== null);
+  const [suggestSignal, setSuggestSignal] = useState(0);
 
   const load = useCallback(async () => {
     setError(null);
@@ -81,7 +87,7 @@ export default function Food({ userId, plan, initialMeal, onChanged }: Props) {
         <div className="text-center">
           <div className="font-semibold">{isToday ? "今日" : formatShort(date)}</div>
           {!isToday && (
-            <button className="text-xs text-emerald-600 underline" onClick={() => setDate(today)}>
+            <button className="text-xs text-teal-700 underline" onClick={() => setDate(today)}>
               返回今日
             </button>
           )}
@@ -111,6 +117,7 @@ export default function Food({ userId, plan, initialMeal, onChanged }: Props) {
           userId={userId}
           date={date}
           defaultMeal={meal}
+          openSignal={suggestSignal}
           onAdded={() => {
             void load();
             onChanged();
@@ -133,6 +140,12 @@ export default function Food({ userId, plan, initialMeal, onChanged }: Props) {
             date={date}
             meal={meal}
             onMealChange={setMeal}
+            roast={
+              date === today && remainingKcal !== null
+                ? { tone: effectiveTone(prefs, reason), enabled: roastAllowed(prefs, reason), remainingKcal }
+                : null
+            }
+            onWantAlternative={() => setSuggestSignal((n) => n + 1)}
             onAdded={() => {
               void load();
               onChanged();

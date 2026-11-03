@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch } from "@/lib/api";
 import { AI_ESTIMATE_NOTE, PHOTO_NOTE } from "@/lib/copy";
+import { foodRoast } from "@/lib/roast";
 import { prepareImage, type PreparedImage } from "@/lib/image-client";
 import { MEAL_LABEL, MEAL_TYPES } from "@/lib/food";
 import { getSupabase } from "@/lib/supabase";
-import type { MealType, SavedMeal } from "@/lib/types";
+import type { MealType, SavedMeal, Tone } from "@/lib/types";
+import { Say } from "./Persona";
 import { btnGhost, btnPrimary, errorBox, infoBox, input, label } from "./ui";
 
 interface Draft {
@@ -51,6 +53,9 @@ interface Props {
   date: string;
   meal: MealType;
   onMealChange: (m: MealType) => void;
+  /** 食前攔截：null = 唔 roast（過去日子、未有目標） */
+  roast: { tone: Tone; enabled: boolean; remainingKcal: number } | null;
+  onWantAlternative: () => void;
   onAdded: () => void;
 }
 
@@ -82,7 +87,7 @@ function checkDraft(d: Draft): string | null {
   return null;
 }
 
-export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: Props) {
+export default function FoodAdd({ userId, date, meal, onMealChange, roast, onWantAlternative, onAdded }: Props) {
   const [mode, setMode] = useState<Mode>("ai");
   const [text, setText] = useState("");
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -274,6 +279,13 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
   }
 
   const isAiDraft = drafts.some((d) => d.raw);
+  const roastResult = useMemo(() => {
+    if (!roast) return null;
+    const items = drafts
+      .map((d) => ({ name: d.name.trim(), calories: Number(d.calories) }))
+      .filter((i) => i.name && Number.isFinite(i.calories) && i.calories > 0);
+    return foodRoast({ items, remainingKcal: roast.remainingKcal, tone: roast.tone, enabled: roast.enabled, seed: `${date}:${meal}` });
+  }, [roast, drafts, date, meal]);
 
   return (
     <div className="space-y-3">
@@ -283,7 +295,7 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
             key={m}
             onClick={() => switchMode(m)}
             className={`rounded-xl px-2 py-2 text-sm ring-1 ${
-              mode === m ? "bg-emerald-500 text-white ring-emerald-500" : "bg-white text-slate-600 ring-slate-300"
+              mode === m ? "bg-teal-700 text-white ring-teal-700" : "bg-white text-slate-600 ring-slate-300"
             }`}
           >
             {t}
@@ -299,7 +311,7 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
               key={m}
               onClick={() => onMealChange(m)}
               className={`rounded-xl px-1 py-2 text-sm ring-1 ${
-                meal === m ? "bg-emerald-100 text-emerald-700 ring-emerald-400" : "bg-white text-slate-600 ring-slate-300"
+                meal === m ? "bg-teal-100 text-teal-800 ring-teal-500" : "bg-white text-slate-600 ring-slate-300"
               }`}
             >
               {MEAL_LABEL[m]}
@@ -380,7 +392,7 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
                     <button
                       disabled={busy}
                       onClick={() => void addSaved(m)}
-                      className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                      className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
                     >
                       加入
                     </button>
@@ -397,6 +409,17 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
 
       {drafts.length > 0 && (
         <div className="space-y-3">
+          {roastResult && (
+            <Say line={roastResult.line}>
+              <button
+                type="button"
+                onClick={onWantAlternative}
+                className="mt-2 block text-sm font-bold text-teal-800 underline"
+              >
+                換個選擇？叫 AI 幫你揀
+              </button>
+            </Say>
+          )}
           {isAiDraft && <p className={infoBox}>{AI_ESTIMATE_NOTE}</p>}
           {drafts.map((d, idx) => (
             <fieldset key={d.key} className="space-y-2 rounded-xl bg-slate-50 p-3">

@@ -8,9 +8,9 @@
 //  - 夜晚補記：未記體重，或者今日記錄少過 2 餐 → 提醒；連續 N 日冇任何記錄 → 改發「好耐冇見」
 //  - 提醒可以提 calories 赤字，但唔責備、唔鼓勵食少過目標
 
-import { APP_NAME, pick, REMINDERS } from "./copy.ts";
+import { reminderLine, WHO_NAME, type ReminderKind as LineKind } from "./copy.ts";
 import { diffDays } from "./date.ts";
-import type { MealType } from "./types.ts";
+import type { MealType, Tone, Who } from "./types.ts";
 
 export type ReminderKind = "weight" | MealType | "evening";
 
@@ -64,10 +64,14 @@ export interface DecideInput {
   lastLogDate: string | null;
   sentToday: ReadonlySet<string>;
   windowMinutes?: number;
+  /** 語氣（65 歲或以上、敏感時刻由 caller 傳 soft） */
+  tone?: Tone;
 }
 
 export interface DueReminder {
   kind: ReminderKind;
+  /** 邊個街坊講 */
+  who: Who;
   title: string;
   body: string;
   url: string;
@@ -103,21 +107,16 @@ export function decideReminders(input: DecideInput): DueReminder[] {
     lastLogDate,
     sentToday,
     windowMinutes = 60,
+    tone = "neighbour",
   } = input;
 
   if (s.quiet_enabled && isQuiet(nowTime, s.quiet_start, s.quiet_end)) return [];
 
   const out: DueReminder[] = [];
-  const make = (
-    kind: ReminderKind,
-    url: string,
-    list: readonly string[],
-  ): DueReminder => ({
-    kind,
-    title: APP_NAME,
-    body: pick(list, `${nowDate}:${kind}`),
-    url,
-  });
+  const make = (kind: ReminderKind, url: string, lineKind: LineKind = kind): DueReminder => {
+    const l = reminderLine(lineKind, tone, `${nowDate}:${kind}`);
+    return { kind, who: l.who, title: WHO_NAME[l.who], body: l.text, url };
+  };
 
   // 體重
   if (
@@ -126,7 +125,7 @@ export function decideReminders(input: DecideInput): DueReminder[] {
     !weightLoggedToday &&
     isDue(nowTime, s.weight_time, windowMinutes)
   ) {
-    out.push(make("weight", "/?tab=weight", REMINDERS.weight));
+    out.push(make("weight", "/?tab=weight"));
   }
 
   // 餐單
@@ -138,7 +137,7 @@ export function decideReminders(input: DecideInput): DueReminder[] {
       !mealsLoggedToday.has(meal) &&
       isDue(nowTime, s[`${meal}_time`], windowMinutes)
     ) {
-      out.push(make(meal, `/?tab=food&meal=${meal}`, REMINDERS.meal[meal]));
+      out.push(make(meal, `/?tab=food&meal=${meal}`));
     }
   }
 
@@ -153,9 +152,9 @@ export function decideReminders(input: DecideInput): DueReminder[] {
       (lastLogDate === null || diffDays(lastLogDate, nowDate) >= s.inactive_days);
     const missing = !weightLoggedToday || mealsLoggedToday.size < 2;
     if (inactive) {
-      out.push(make("evening", "/?tab=today", REMINDERS.inactive));
+      out.push(make("evening", "/?tab=today", "inactive"));
     } else if (missing) {
-      out.push(make("evening", "/?tab=today", REMINDERS.eveningCatchUp));
+      out.push(make("evening", "/?tab=today"));
     }
   }
 

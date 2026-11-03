@@ -1,8 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f8fafc;
-  --fg: #0f172a;
+  --bg: #fff8ee;
+  --fg: #2b1d16;
+}
+
+html {
+  font-size: 17px; /* 比預設大，長者同後生都易睇 */
+}
+html.elder {
+  font-size: 20px; /* 長者模式 */
 }
 
 html,
@@ -12,9 +19,10 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* iOS：輸入框字體 < 16px 會自動放大，所以統一 16px */
+/* iOS：輸入框字體 < 16px 會自動放大，所以統一至少 16px */
 input,
 select,
-button {
+button,
+textarea {
   font-size: 16px;
 }

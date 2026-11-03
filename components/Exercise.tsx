@@ -151,7 +151,7 @@ export default function Exercise({ userId, plan, weightKg, onChanged }: Props) {
         <div className="text-center">
           <div className="font-semibold">{isToday ? "今日" : formatShort(date)}</div>
           {!isToday && (
-            <button className="text-xs text-emerald-600 underline" onClick={() => setDate(today)}>
+            <button className="text-xs text-teal-700 underline" onClick={() => setDate(today)}>
               返回今日
             </button>
           )}
@@ -168,14 +168,14 @@ export default function Exercise({ userId, plan, weightKg, onChanged }: Props) {
 
       <section className={card}>
         <div className="text-center">
-          <div className="text-3xl font-bold text-emerald-600">
+          <div className="text-3xl font-bold text-teal-700">
             {burned}
             <span className="text-base font-normal text-slate-400"> kcal</span>
           </div>
           <div className="text-sm text-slate-500">{isToday ? "今日" : "當日"}運動消耗（估算）</div>
         </div>
         {budget ? (
-          <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-center text-sm text-emerald-800">
+          <p className="mt-3 rounded-xl bg-teal-50 p-3 text-center text-sm text-teal-900">
             食物上限：基本 {budget.baseCalories} ＋ 運動 {budget.exerciseCredit} ＝{" "}
             <b>{budget.calories} kcal</b>
             {burned > EXERCISE_CREDIT_CAP && (
@@ -246,7 +246,7 @@ export default function Exercise({ userId, plan, weightKg, onChanged }: Props) {
             ) : (
               <div
                 id="ex-kcal"
-                className="flex h-[46px] items-center rounded-xl bg-slate-50 px-3 font-semibold text-emerald-700"
+                className="flex h-[46px] items-center rounded-xl bg-slate-50 px-3 font-semibold text-teal-800"
               >
                 {auto === null ? "—" : `約 ${auto} kcal`}
               </div>

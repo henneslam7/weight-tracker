@@ -4,6 +4,7 @@ import { useState } from "react";
 import { APP_NAME, TAGLINE } from "@/lib/copy";
 import { getSupabase } from "@/lib/supabase";
 import InstallButton from "./InstallButton";
+import { Avatar } from "./Persona";
 import { btnPrimary, card, errorBox, infoBox, input, label } from "./ui";
 
 export default function AuthForm() {
@@ -41,7 +42,11 @@ export default function AuthForm() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4">
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-emerald-600">{APP_NAME}</h1>
+        <div className="mb-3 flex justify-center gap-3">
+          <Avatar who="chan" size={72} />
+          <Avatar who="foon" size={72} />
+        </div>
+        <h1 className="text-3xl font-black text-teal-800">{APP_NAME}</h1>
         <p className="mt-1 text-sm text-slate-500">{TAGLINE}</p>
       </div>
       <form onSubmit={submit} className={`${card} space-y-4`}>

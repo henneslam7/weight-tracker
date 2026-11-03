@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { authedFetch } from "@/lib/api";
 import { MEAL_LABEL, MEAL_TYPES } from "@/lib/food";
 import { getSupabase } from "@/lib/supabase";
@@ -33,6 +33,8 @@ interface Props {
   /** 今日日期（建議只針對今日） */
   date: string;
   defaultMeal: MealType;
+  /** 每加一次就強制打開（例如陳伯歡嬸叫你「換個選擇」） */
+  openSignal?: number;
   onAdded: () => void;
 }
 
@@ -42,7 +44,7 @@ const MODES: { id: Mode; text: string }[] = [
   { id: "eat_out", text: "外食" },
 ];
 
-export default function MealSuggest({ userId, date, defaultMeal, onAdded }: Props) {
+export default function MealSuggest({ userId, date, defaultMeal, openSignal = 0, onAdded }: Props) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("any");
   const [meal, setMeal] = useState<MealType>(defaultMeal);
@@ -51,6 +53,10 @@ export default function MealSuggest({ userId, date, defaultMeal, onAdded }: Prop
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [added, setAdded] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (openSignal > 0) setOpen(true);
+  }, [openSignal]);
 
   async function ask() {
     setBusy(true);
@@ -128,7 +134,7 @@ export default function MealSuggest({ userId, date, defaultMeal, onAdded }: Prop
               key={m}
               onClick={() => setMeal(m)}
               className={`rounded-xl px-1 py-2 text-sm ring-1 ${
-                meal === m ? "bg-emerald-100 text-emerald-700 ring-emerald-400" : "bg-white text-slate-600 ring-slate-300"
+                meal === m ? "bg-teal-100 text-teal-800 ring-teal-500" : "bg-white text-slate-600 ring-slate-300"
               }`}
             >
               {MEAL_LABEL[m]}
@@ -143,7 +149,7 @@ export default function MealSuggest({ userId, date, defaultMeal, onAdded }: Prop
             key={m.id}
             onClick={() => setMode(m.id)}
             className={`rounded-xl px-1 py-2 text-sm ring-1 ${
-              mode === m.id ? "bg-emerald-500 text-white ring-emerald-500" : "bg-white text-slate-600 ring-slate-300"
+              mode === m.id ? "bg-teal-700 text-white ring-teal-700" : "bg-white text-slate-600 ring-slate-300"
             }`}
           >
             {m.text}
@@ -188,7 +194,7 @@ export default function MealSuggest({ userId, date, defaultMeal, onAdded }: Prop
             <article key={`${s.title}-${i}`} className="space-y-2 rounded-xl bg-slate-50 p-3">
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-semibold">{s.title}</h3>
-                <span className="shrink-0 rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
+                <span className="shrink-0 rounded bg-teal-100 px-2 py-0.5 text-xs text-teal-800">
                   {s.kind === "cook" ? "煮食" : "外食"}
                 </span>
               </div>
@@ -199,10 +205,10 @@ export default function MealSuggest({ userId, date, defaultMeal, onAdded }: Prop
                   {" "}・P {s.protein_g} · C {s.carbs_g} · F {s.fat_g}
                 </span>
               </p>
-              {s.why && <p className="text-xs text-emerald-700">{s.why}</p>}
+              {s.why && <p className="text-xs text-teal-800">{s.why}</p>}
               {(s.ingredients.length > 0 || s.steps.length > 0) && (
                 <details className="text-sm text-slate-600">
-                  <summary className="cursor-pointer text-emerald-700">
+                  <summary className="cursor-pointer text-teal-800">
                     {s.kind === "cook" ? "材料同步驟" : "點餐方法"}
                   </summary>
                   {s.ingredients.length > 0 && (

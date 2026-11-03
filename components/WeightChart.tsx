@@ -69,7 +69,7 @@ export default function WeightChart({ points, targetKg }: Props) {
             strokeWidth="1"
             strokeDasharray="4 3"
           />
-          <text x={W - PAD.r} y={y(targetKg) - 3} textAnchor="end" fontSize="10" fill="#d97706">
+          <text x={W - PAD.r} y={y(targetKg) - 3} textAnchor="end" fontSize="10" fill="#b45309">
             目標 {targetKg}
           </text>
         </g>
@@ -77,7 +77,7 @@ export default function WeightChart({ points, targetKg }: Props) {
       {points.map((p) => (
         <circle key={p.date} cx={x(p.date)} cy={y(p.weight)} r="2.5" fill="#94a3b8" />
       ))}
-      <path d={avgPath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinejoin="round" />
+      <path d={avgPath} fill="none" stroke="#0f766e" strokeWidth="2.5" strokeLinejoin="round" />
       <text x={PAD.l} y={H - 6} fontSize="10" fill="#94a3b8">{formatShort(first)}</text>
       <text x={W - PAD.r} y={H - 6} textAnchor="end" fontSize="10" fill="#94a3b8">
         {formatShort(last)}

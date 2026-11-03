@@ -47,7 +47,7 @@ function ShareIcon() {
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <li className="flex gap-3">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-sm font-bold text-white">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-700 text-sm font-bold text-white">
         {n}
       </span>
       <span className="pt-0.5 leading-relaxed">{children}</span>
@@ -164,7 +164,7 @@ export default function InstallButton({ variant = "primary", label = "📲 加�
       ? btnPrimary
       : variant === "ghost"
         ? btnGhost
-        : "text-sm font-medium text-emerald-700 underline";
+        : "text-sm font-medium text-teal-800 underline";
 
   return (
     <>
@@ -201,9 +201,9 @@ export function InstallBanner() {
   }
 
   return (
-    <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-200">
-      <p className="font-semibold text-emerald-800">加入主畫面，一撳就開</p>
-      <p className="mt-1 text-sm text-emerald-700">加入後先可以收到記錄食物同體重嘅提醒。</p>
+    <div className="rounded-2xl bg-teal-50 p-4 ring-1 ring-teal-200">
+      <p className="font-semibold text-teal-900">加入主畫面，一撳就開</p>
+      <p className="mt-1 text-sm text-teal-800">加入後先可以收到記錄食物同體重嘅提醒。</p>
       <div className="mt-3 flex items-center gap-2">
         <div className="flex-1">
           <InstallButton variant="primary" label="📲 加入主畫面" />

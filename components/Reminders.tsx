@@ -288,7 +288,7 @@ export default function Reminders({ userId }: { userId: string }) {
       </section>
 
       {error && <p className={errorBox}>{error}</p>}
-      {msg && <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{msg}</p>}
+      {msg && <p className="rounded-xl bg-teal-50 p-3 text-sm text-teal-800">{msg}</p>}
 
       <p className="text-xs text-slate-400">
         提醒每 5 分鐘檢查一次，所以可能遲幾分鐘先到。已經記錄咗嘅項目唔會再提醒。

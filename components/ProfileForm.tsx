@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { validateProfile } from "@/lib/calc";
+import { ageOn, isSenior, SENIOR, validateProfile } from "@/lib/calc";
 import { toDateStr } from "@/lib/date";
 import { getSupabase } from "@/lib/supabase";
 import type { ActivityLevel, Goal, Profile, Sex } from "@/lib/types";
@@ -52,10 +52,14 @@ export default function ProfileForm({
     initial?.target_weight_kg ? String(initial.target_weight_kg) : "",
   );
   const [rate, setRate] = useState(String(initial?.weekly_rate_kg ?? 0.5));
+  const [seniorAck, setSeniorAck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const rateOptions = goal === "gain" ? [0.25, 0.5] : [0.25, 0.5, 0.75];
+  const ageNow = /^\d{4}-\d{2}-\d{2}$/.test(birth) ? ageOn(birth, toDateStr()) : null;
+  const senior = ageNow !== null && isSenior(ageNow);
+  const seniorLoseGain = senior && goal !== "maintain";
+  const rateOptions = goal === "gain" ? [0.25, 0.5] : senior ? [0.25] : [0.25, 0.5, 0.75];
   const effectiveRate = rateOptions.includes(Number(rate)) ? rate : "0.5";
 
   async function submit(e: React.FormEvent) {
@@ -80,6 +84,10 @@ export default function ProfileForm({
 
     if (!hasWeight && currentWeight === null) {
       setError("請輸入現時體重。");
+      return;
+    }
+    if (seniorLoseGain && !seniorAck) {
+      setError("請先剔「我知道減重前應該先問醫生」，先可以繼續。");
       return;
     }
     const problem = validateProfile({ profile, currentWeightKg: currentWeight, today });
@@ -133,7 +141,7 @@ export default function ProfileForm({
                 onClick={() => setSex(s)}
                 className={`rounded-xl px-3 py-2.5 ring-1 ${
                   sex === s
-                    ? "bg-emerald-500 text-white ring-emerald-500"
+                    ? "bg-teal-700 text-white ring-teal-700"
                     : "bg-white text-slate-700 ring-slate-300"
                 }`}
               >
@@ -211,7 +219,7 @@ export default function ProfileForm({
                 onClick={() => setGoal(o.value)}
                 className={`rounded-xl px-2 py-2.5 ring-1 ${
                   goal === o.value
-                    ? "bg-emerald-500 text-white ring-emerald-500"
+                    ? "bg-teal-700 text-white ring-teal-700"
                     : "bg-white text-slate-700 ring-slate-300"
                 }`}
               >
@@ -252,6 +260,19 @@ export default function ProfileForm({
           </div>
         )}
 
+        {seniorLoseGain && (
+          <div className="space-y-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="font-bold">65 歲或以上，要特別小心</p>
+            <p>
+              為咗保護你，我哋用較保守嘅設定：每日赤字最多 TDEE 嘅 {Math.round(SENIOR.maxDeficitRatio * 100)}%、每週最多 {SENIOR.rateMax} kg、蛋白質按 {SENIOR.proteinGPerKg} g/kg 計、目標體重 BMI 唔低過 {SENIOR.minTargetBmi}。
+              呢啲係設計預設，唔係醫療意見。
+            </p>
+            <label className="flex items-start gap-2 font-semibold">
+              <input type="checkbox" className="mt-1 h-5 w-5 accent-teal-700" checked={seniorAck} onChange={(e) => setSeniorAck(e.target.checked)} />
+              我知道減重前應該先問醫生或註冊營養師
+            </label>
+          </div>
+        )}
         {error && <p className={errorBox}>{error}</p>}
         <button className={btnPrimary} disabled={busy}>
           {busy ? "儲存中…" : "儲存"}

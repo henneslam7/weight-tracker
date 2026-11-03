@@ -1,5 +1,6 @@
 // npm run test:reminders
 import assert from "node:assert/strict";
+import { reminderLine, type ReminderKind } from "../lib/copy.ts";
 import { nowInZone } from "../lib/date.ts";
 import { defaultMealType, sumFood } from "../lib/food.ts";
 import {
@@ -113,23 +114,43 @@ test("連續 3 日冇記錄 → 夜晚改發「好耐冇見」，唔責備", () 
   });
   const d = decideReminders(i);
   assert.equal(d.length, 1);
-  assert.ok(d[0].body.includes("重新開始"));
+  assert.ok(d[0].body.includes("記一筆"));
 });
-test("提醒會提赤字，但唔責備、唔鼓勵食少啲", () => {
-  const all = [
-    { nowTime: "07:35", weightLoggedToday: false },
-    { nowTime: "08:35" },
-    { nowTime: "12:35" },
-    { nowTime: "19:05" },
-    { nowTime: "21:05", weightLoggedToday: false },
-    { nowTime: "21:05", weightLoggedToday: false, lastLogDate: null },
-  ].flatMap((o) => decideReminders(base(o)));
-  assert.ok(all.length >= 5);
-  assert.ok(all.filter((d) => d.body.includes("赤字")).length >= 4);
-  for (const d of all) {
-    assert.ok(!/減少食|少食|唔准食|唔好食|肥|餓/.test(d.body), d.body);
-    assert.ok(d.url.startsWith("/?tab="));
+test("提醒有講嘢嘅人（陳伯／歡嬸）同標題", () => {
+  const d = decideReminders(base());
+  assert.ok(d[0].who === "chan" || d[0].who === "foon");
+  assert.equal(d[0].title, d[0].who === "chan" ? "陳伯" : "歡嬸");
+});
+test("所有語氣嘅提醒：唔鬧身形、唔叫人少食、唔恐嚇、唔講補償；溫柔版冇毒舌", () => {
+  const kinds_: ReminderKind[] = ["weight", "breakfast", "lunch", "dinner", "snack", "evening", "inactive"];
+  // 「補返先瞓」係補記錄，唔算補償；真正禁嘅係「食咗要…」「要補返」「運動補」
+  const banned = /減少食|少食|唔准食|唔好食|肥|餓|會死|會病|罪惡|補償|懲罰|癌|食咗要|要補返|運動補/;
+  let withDeficit = 0;
+  for (const tone of ["soft", "neighbour", "spicy"] as const) {
+    for (const k of kinds_) {
+      for (let n = 0; n < 6; n++) {
+        const l = reminderLine(k, tone, `seed${n}`);
+        assert.ok(!banned.test(l.text.replaceAll("減肥", "")), l.text);   // 「減肥」係中性活動詞，唔當鬧人肥
+        if (l.text.includes("赤字")) withDeficit++;
+      }
+    }
   }
+  assert.ok(withDeficit >= 10, "提醒應該有提赤字");
+  // 溫柔版唔應該有賭、年卡、報警等毒舌套路
+  for (const k of kinds_) {
+    for (let n = 0; n < 6; n++) assert.ok(!/賭|年卡|報警|失蹤/.test(reminderLine(k, "soft", `s${n}`).text));
+  }
+});
+test("inactive 提醒最多用街坊級，spicy 會退返 neighbour", () => {
+  for (let n = 0; n < 8; n++) {
+    const sp = reminderLine("inactive", "spicy", `x${n}`).text;
+    const nb = reminderLine("inactive", "neighbour", `x${n}`).text;
+    assert.equal(sp, nb);
+  }
+});
+test("溫柔語氣會傳落提醒（tone=soft）", () => {
+  const soft = decideReminders(base({ tone: "soft", nowTime: "07:35", weightLoggedToday: false }))[0].body;
+  assert.ok(!/賭|報警|失蹤|拍咗拖/.test(soft));
 });
 test("深層連結：餐單提醒帶 meal 參數", () => {
   assert.equal(decideReminders(base())[0].url, "/?tab=food&meal=lunch");

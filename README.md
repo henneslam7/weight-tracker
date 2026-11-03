@@ -1,6 +1,12 @@
-# Fit 過林峯
+# 食咗飯未
 
-個人 AI 健身 web app（單一用戶、mobile-first PWA）。所有提示、提醒、鼓勵文案都集中喺 `lib/copy.ts`，語氣係「同林峯一樣靚仔，仲要 fit 過佢」。
+記食物、體重、運動嘅 mobile-first PWA（邀請制，約 15 人以內）。兩個街坊——**陳伯**同**歡嬸**日日睇住你：提醒、鼓勵同 roast 全部集中喺 `lib/copy.ts`（對白）同 `lib/roast.ts`（食物 roast）。
+
+- 語氣三級：溫柔／街坊（預設）／毒舌，每人自己揀（`user_prefs`）。
+- 毒舌對象係藉口、拖延、做 show、年卡唔去，同你同某啲食物嘅「孽緣」。**唔鬧身形**，唔講健康恐嚇、罪惡、補償。
+- 敏感時刻（食得太少、減得太快、超標、隔咗幾日返嚟、65 歲或以上）自動變溫柔，唔 roast（`lib/persona.ts`）。
+- 今日三樣、印花卡、街坊級數：全部由記錄計出（`lib/gamify.ts`），只獎勵「有記錄」同「休息」。
+- 65 歲或以上：較保守設定（赤字 ≤ 15%、每週 ≤ 0.25 kg、蛋白質 1.2 g/kg、目標 BMI ≥ 22、運動加成減半）、長者模式、開始前要確認。數值係設計預設，唔係醫療意見。
 
 **Phase 1**：登入／註冊、onboarding、BMR／TDEE／calories／macros 計算機、體重記錄、7 日移動平均趨勢圖、PWA。
 
@@ -29,6 +35,10 @@ Stack：Next.js 15（App Router）· React 19 · Tailwind v4 · TypeScript stric
 
 AI 全部喺 `lib/ai/`，換 model 或 provider 只改嗰度。Route：`/api/ai/food`（驗證 Bearer token、每日上限）、`/api/push/test`、`/api/cron/reminders`（CRON_SECRET）。
 
+## 用戶設定（語氣、食物 roast、長者模式）
+
+Supabase SQL Editor 執行 `supabase/schema_persona.sql`。未執行之前 app 用預設值，照常運作。每人每日 AI 上限預設 20 次（`AI_DAILY_LIMIT`）。公開註冊保持關閉，用 Supabase → Authentication → Users 手動邀請。
+
 ## 運動記錄 + AI 食咩好
 
 1. Supabase SQL Editor 執行 `supabase/schema_exercise.sql`（未建表之前，app 其他功能照常，運動當 0）
@@ -42,7 +52,7 @@ AI 全部喺 `lib/ai/`，換 model 或 provider 只改嗰度。Route：`/api/ai/
 |---|---|
 | `npm run dev` | 開發 |
 | `npm run build` | Production build（含 type check） |
-| `npm test` | 全部測試（calc、reminders、ai、install、exercise；Node >= 22.6） |
+| `npm test` | 全部測試（calc、reminders、ai、install、exercise、persona、cantonese；Node >= 22.6） |
 
 ## 重要規則
 
@@ -50,3 +60,4 @@ AI 全部喺 `lib/ai/`，換 model 或 provider 只改嗰度。Route：`/api/ai/
 - 日期一律用本地日期 `YYYY-MM-DD`（`lib/date.ts`），唔用 `toISOString()`。
 - 所有表開 RLS（`user_id = auth.uid()`）。前端只用 anon key，永遠唔好用 service_role key。
 - 所有數字係估算，唔係醫療建議。
+- 廣東話用字：`npm run test:cantonese` 會掃走普通話字詞同未證實用字，但唔可以代替母語者審稿。

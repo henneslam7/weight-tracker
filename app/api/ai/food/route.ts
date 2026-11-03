@@ -6,7 +6,7 @@ import { authenticate } from "@/lib/server/auth";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-const DEFAULT_DAILY_LIMIT = 30;
+const DEFAULT_DAILY_LIMIT = 20;
 /** 相片 base64 後大約 2MB；Vercel function 上限 4.5MB */
 const MAX_BODY_BYTES = 3_000_000;
 

@@ -5,125 +5,167 @@ import type { Plan } from "@/lib/calc";
 import {
   goalMessage,
   greeting,
+  gossipFor,
+  say,
   trendMessage,
   WEIGHT_EMPTY,
-  WEIGHT_NOT_LOGGED,
+  type Line,
 } from "@/lib/copy";
 import { formatShort, toDateStr } from "@/lib/date";
 import { sumFood } from "@/lib/food";
-import type { FoodLog, Profile, WeightLog } from "@/lib/types";
+import { dayLogFor, stampDates, tasksFor, type History } from "@/lib/gamify";
+import { addDays } from "@/lib/date";
+import { effectiveTone, sensitiveKind, type SensitiveReason } from "@/lib/persona";
+import type { FoodLog, MealType, Profile, UserPrefs, WeightLog } from "@/lib/types";
 import IntakeProgress from "./IntakeProgress";
 import { InstallBanner } from "./InstallButton";
+import { Say } from "./Persona";
+import Quests from "./Quests";
 import { card, DISCLAIMER, infoBox } from "./ui";
 
 interface Props {
+  userId: string;
   profile: Profile;
   plan: Plan | null;
   planError: string | null;
   logs: WeightLog[]; // 升序
   foodToday: FoodLog[];
-  /** 今日運動淨消耗 kcal */
   exerciseBurned: number;
+  prefs: UserPrefs;
+  reason: SensitiveReason | null;
+  history: History;
   onGoWeight: () => void;
   onGoFood: () => void;
   onGoExercise: () => void;
+  onChanged: () => void;
+}
+
+const MEAL_AFTER: [MealType, number][] = [["breakfast", 8], ["lunch", 12], ["dinner", 18]];
+/** 而家應該記邊餐：已過時間而未記嘅最遲一餐，冇就第一個未記嘅 */
+function nextMeal(hour: number, logged: ReadonlySet<MealType>): MealType {
+  const due = MEAL_AFTER.filter(([m, h]) => hour >= h && !logged.has(m));
+  if (due.length) return due[due.length - 1][0];
+  return MEAL_AFTER.find(([m]) => !logged.has(m))?.[0] ?? "snack";
 }
 
 export default function Today({
+  userId,
   profile,
   plan,
   planError,
   logs,
   foodToday,
   exerciseBurned,
+  prefs,
+  reason,
+  history,
   onGoWeight,
   onGoFood,
   onGoExercise,
+  onChanged,
 }: Props) {
   const now = new Date();
   const today = toDateStr(now);
   const latest = logs.length ? logs[logs.length - 1] : null;
-  const loggedToday = latest?.logged_on === today;
   const trend = weeklyTrendKg(logs);
-  const goalLine = latest
-    ? goalMessage(profile.goal, latest.weight_kg, profile.target_weight_kg)
-    : null;
+  const goalLine = latest ? goalMessage(profile.goal, latest.weight_kg, profile.target_weight_kg) : null;
+
+  const day = dayLogFor(history, today);
+  const t = tasksFor(day);
+  const stampTotal = stampDates(history, addDays(today, -120), today).length;
+  const tone = effectiveTone(prefs, reason);
+  const sk = sensitiveKind(reason);
+  const mealsToday = history.mealsByDate.get(today) ?? new Set<MealType>();
+
+  // 今日點樣講：敏感時刻最優先，然後按未完成嘅任務
+  let line: Line;
+  let action: { label: string; go: () => void } | null = null;
+  if (sk) line = say(sk, "soft", today);
+  else if (t.done) line = say("allDone", tone, today);
+  else if (!t.weight) {
+    line = say("weight", tone, today);
+    action = { label: "去上磅", go: onGoWeight };
+  } else if (!t.meals) {
+    line = say(nextMeal(now.getHours(), mealsToday), tone, today);
+    action = { label: "去記低食咩", go: onGoFood };
+  } else {
+    line = say("move", tone, today);
+    action = { label: "去記運動", go: onGoExercise };
+  }
 
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-lg font-semibold text-emerald-600">{greeting(now.getHours())}</p>
-        <p className="text-sm text-slate-500">{formatShort(today)}</p>
+        <p className="text-2xl font-black text-teal-800">{greeting(now.getHours())}</p>
+        <p className="text-sm text-stone-500">{formatShort(today)}</p>
       </div>
 
       <InstallBanner />
 
-      {!loggedToday && (
-        <button
-          onClick={onGoWeight}
-          className="w-full rounded-2xl bg-emerald-500 p-4 text-left text-white active:bg-emerald-600"
-        >
-          <div className="font-semibold">{WEIGHT_NOT_LOGGED.title}</div>
-          <div className="text-sm text-emerald-50">{WEIGHT_NOT_LOGGED.sub}</div>
-        </button>
-      )}
+      <Say line={line}>
+        {action && (
+          <button
+            onClick={action.go}
+            className="mt-3 block w-full rounded-xl bg-teal-700 py-3 text-center text-lg font-bold text-white active:bg-teal-800"
+          >
+            {action.label}
+          </button>
+        )}
+      </Say>
+
+      <Quests userId={userId} day={day} stampTotal={stampTotal} onChanged={onChanged} />
+
+      <section>
+        <h2 className="mb-2 text-sm font-bold text-stone-600">今日街坊閒話</h2>
+        <Say line={gossipFor(today)} tone="gossip" />
+      </section>
 
       <section className={card}>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-semibold">今日食物</h2>
+          <h2 className="font-bold">今日食物</h2>
           <span className="flex gap-3 text-sm">
-            <button className="text-emerald-600 underline" onClick={onGoFood}>
+            <button className="font-semibold text-teal-800 underline" onClick={onGoFood}>
               AI 食咩好？
             </button>
-            <button className="text-emerald-600 underline" onClick={onGoFood}>
+            <button className="font-semibold text-teal-800 underline" onClick={onGoFood}>
               記錄食物
             </button>
           </span>
         </div>
         {planError && <p className={infoBox}>{planError}</p>}
-        {!planError && !plan && (
-          <p className={infoBox}>記錄體重後，就會計出你嘅每日目標。</p>
-        )}
-        {plan && (
-          <IntakeProgress plan={plan} totals={sumFood(foodToday)} exerciseBurned={exerciseBurned} />
-        )}
-        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
-          <span className="text-slate-500">今日運動 {exerciseBurned} kcal</span>
-          <button className="text-emerald-600 underline" onClick={onGoExercise}>
+        {!planError && !plan && <p className={infoBox}>記錄體重後，就會計出你嘅每日目標。</p>}
+        {plan && <IntakeProgress plan={plan} totals={sumFood(foodToday)} exerciseBurned={exerciseBurned} />}
+        <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-3 text-sm">
+          <span className="text-stone-500">今日運動 {exerciseBurned} kcal</span>
+          <button className="font-semibold text-teal-800 underline" onClick={onGoExercise}>
             記錄運動
           </button>
         </div>
       </section>
 
       <section className={card}>
-        <h2 className="mb-1 font-semibold">體重</h2>
+        <h2 className="mb-1 font-bold">體重</h2>
         {latest ? (
           <>
             <div className="flex items-baseline justify-between">
               <div>
                 <span className="text-3xl font-bold">{latest.weight_kg}</span>
-                <span className="ml-1 text-slate-500">kg</span>
-                <div className="text-xs text-slate-400">{formatShort(latest.logged_on)}</div>
+                <span className="ml-1 text-stone-500">kg</span>
+                <div className="text-xs text-stone-400">{formatShort(latest.logged_on)}</div>
               </div>
-              <div className="text-right text-sm text-slate-500">
-                {trend !== null && (
-                  <div>每週 {trend > 0 ? "+" : ""}{trend} kg</div>
-                )}
+              <div className="text-right text-sm text-stone-500">
+                {trend !== null && <div>每週 {trend > 0 ? "+" : ""}{trend} kg</div>}
               </div>
             </div>
-            {goalLine && (
-              <p className="mt-2 text-sm font-medium text-emerald-700">{goalLine}</p>
-            )}
-            <p className="mt-1 text-sm text-slate-500">
-              {trendMessage(profile.goal, trend)}
-            </p>
+            {goalLine && <p className="mt-2 text-sm font-semibold text-teal-800">{goalLine}</p>}
+            <p className="mt-1 text-sm text-stone-600">{trendMessage(profile.goal, trend)}</p>
           </>
         ) : (
-          <p className="text-sm text-slate-400">{WEIGHT_EMPTY}</p>
+          <p className="text-sm text-stone-500">{WEIGHT_EMPTY}</p>
         )}
       </section>
 
-      <p className="text-xs text-slate-400">{DISCLAIMER}</p>
+      <p className="text-xs text-stone-400">{DISCLAIMER}</p>
     </div>
   );
 }

@@ -1,17 +1,30 @@
 {
-  "name": "Fit 過林峯",
-  "short_name": "Fit過林峯",
-  "description": "同林峯一樣靚仔，仲要 fit 過佢",
+  "name": "食咗飯未",
+  "short_name": "食咗飯未",
+  "description": "陳伯歡嬸日日睇住你，記低食咩先算數",
   "lang": "zh-HK",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f8fafc",
-  "theme_color": "#10b981",
+  "background_color": "#fff8ee",
+  "theme_color": "#0f766e",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

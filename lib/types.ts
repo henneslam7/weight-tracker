@@ -61,3 +61,16 @@ export interface ExerciseLog {
   calories: number;
   source: ExerciseSource;
 }
+
+/** 語氣強度：溫柔 / 街坊（預設）/ 毒舌 */
+export type Tone = "soft" | "neighbour" | "spicy";
+/** 兩個街坊：陳伯、歡嬸 */
+export type Who = "chan" | "foon";
+
+export interface UserPrefs {
+  tone: Tone;
+  /** 係咪容許針對食物嘅 roast */
+  food_roast: boolean;
+  /** 長者模式：大字、較少 tab */
+  elder_mode: boolean;
+}
