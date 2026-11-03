@@ -24,14 +24,6 @@ export function isStandalone(): boolean {
   return nav.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
 }
 
-export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
-  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
-  const raw = atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
-  const out = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-  return out;
-}
-
 export async function getRegistration(): Promise<ServiceWorkerRegistration> {
   await navigator.serviceWorker.register("/sw.js");
   return navigator.serviceWorker.ready;

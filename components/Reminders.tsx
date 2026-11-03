@@ -8,9 +8,9 @@ import {
   isIos,
   isStandalone,
   pushSupported,
-  urlBase64ToUint8Array,
 } from "@/lib/push-client";
 import { DEFAULT_SETTINGS, type ReminderSettings } from "@/lib/reminders";
+import { vapidKeyProblem, vapidKeyToBytes } from "@/lib/vapid";
 import { getSupabase } from "@/lib/supabase";
 import InstallButton from "./InstallButton";
 import { btnGhost, btnPrimary, card, errorBox, infoBox, input } from "./ui";
@@ -25,6 +25,18 @@ const ROWS: { key: TimeKey; label: string; hint?: string }[] = [
   { key: "snack", label: "小食提醒" },
   { key: "evening", label: "夜晚補記提醒", hint: "漏記體重或食物先提醒" },
 ];
+
+/** 將瀏覽器嘅英文錯誤轉做人話（唔好直接掟英文畀用戶） */
+function friendlyPushError(e: unknown): string {
+  const name = e instanceof Error ? e.name : "";
+  const msg = e instanceof Error ? e.message : String(e);
+  if (name === "InvalidCharacterError" || /invalid characters?|not correctly encoded/i.test(msg)) {
+    return "推送金鑰（VAPID）格式有問題，瀏覽器解碼唔到。請檢查 Vercel 嘅 NEXT_PUBLIC_VAPID_PUBLIC_KEY 有冇多咗空格、引號或者換行，重新貼上再 Redeploy。";
+  }
+  if (name === "NotAllowedError") return "未獲得通知權限。請喺 iPhone 設定 → 通知 → 食咗飯未 開啟。";
+  if (name === "AbortError" || name === "InvalidStateError") return "推送服務暫時連唔到，請稍後再試，或者重新由主畫面開啟 app。";
+  return msg || "開啟通知失敗";
+}
 
 export default function Reminders({ userId }: { userId: string }) {
   const [settings, setSettings] = useState<ReminderSettings>(DEFAULT_SETTINGS);
@@ -69,8 +81,9 @@ export default function Reminders({ userId }: { userId: string }) {
     setError(null);
     setMsg(null);
     const vapid = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    if (!vapid) {
-      setError("未設定 NEXT_PUBLIC_VAPID_PUBLIC_KEY，請睇設定步驟。");
+    const problem = vapidKeyProblem(vapid);
+    if (problem || !vapid) {
+      setError(problem ?? "未設定 NEXT_PUBLIC_VAPID_PUBLIC_KEY。");
       return;
     }
     setBusy(true);
@@ -86,7 +99,7 @@ export default function Reminders({ userId }: { userId: string }) {
         (await reg.pushManager.getSubscription()) ??
         (await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapid),
+          applicationServerKey: vapidKeyToBytes(vapid),
         }));
       const json = sub.toJSON();
       if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error("訂閱資料唔完整");
@@ -104,7 +117,7 @@ export default function Reminders({ userId }: { userId: string }) {
       setSubscribed(true);
       setMsg("已開啟通知。撳「發送測試通知」睇下收唔收到。");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "開啟通知失敗");
+      setError(friendlyPushError(e));
     } finally {
       setBusy(false);
     }

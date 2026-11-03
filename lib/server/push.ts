@@ -1,4 +1,5 @@
 import webpush from "web-push";
+import { cleanVapidKey, vapidKeyProblem } from "../vapid.ts";
 
 let configured = false;
 
@@ -7,8 +8,11 @@ function configure() {
   const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const priv = process.env.VAPID_PRIVATE_KEY;
   const subject = process.env.VAPID_SUBJECT;
-  if (!pub || !priv || !subject) throw new Error("缺少 VAPID 環境變數");
-  webpush.setVapidDetails(subject, pub, priv);
+  if (!pub || !priv || !subject) throw new Error("缺少 VAPID 環境變數（NEXT_PUBLIC_VAPID_PUBLIC_KEY／VAPID_PRIVATE_KEY／VAPID_SUBJECT）");
+  const problem = vapidKeyProblem(pub);
+  if (problem) throw new Error(problem);
+  // 值係人手貼上去 Vercel 嘅，清走空白同引號先用
+  webpush.setVapidDetails(subject.trim().replace(/^["']|["']$/g, ""), cleanVapidKey(pub), priv.trim().replace(/^["']|["']$/g, ""));
   configured = true;
 }
 

@@ -39,8 +39,10 @@ export async function POST(req: Request) {
         if (r === "gone") await auth.supabase.from("push_subscriptions").delete().eq("id", s.id);
       }
     }
-  } catch {
-    return json({ error: "config", message: "推送未設定好（VAPID 環境變數）" }, 503);
+  } catch (e) {
+    // 錯誤訊息只描述格式問題，唔包含 key 內容，可以直接顯示
+    const detail = e instanceof Error ? e.message : "";
+    return json({ error: "config", message: `推送未設定好：${detail || "請檢查 VAPID 環境變數"}` }, 503);
   }
   return json({ sent, failed });
 }
