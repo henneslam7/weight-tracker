@@ -1,4 +1,4 @@
--- Fit 過林峯 — 運動記錄 schema
+-- 食咗飯未 — 運動記錄 schema
 -- 喺 Supabase → SQL Editor 執行。可重複執行（idempotent）。
 -- 要先執行過 schema.sql（Phase 1）。
 

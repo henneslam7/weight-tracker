@@ -79,7 +79,7 @@ export default function Reminders({ userId }: { userId: string }) {
       const permission = await Notification.requestPermission(); // 必須由撳掣觸發
       setPerm(permission);
       if (permission !== "granted") {
-        setError("未獲得通知權限。請喺 iPhone 設定 → 通知 → Fit過林峯 開啟。");
+        setError("未獲得通知權限。請喺 iPhone 設定 → 通知 → 食咗飯未 開啟。");
         return;
       }
       const sub =
@@ -179,7 +179,7 @@ export default function Reminders({ userId }: { userId: string }) {
           </div>
         )}
         {perm === "denied" && (
-          <p className={errorBox}>通知權限被拒絕。請去 iPhone 設定 → 通知 → Fit過林峯 重新開啟。</p>
+          <p className={errorBox}>通知權限被拒絕。請去 iPhone 設定 → 通知 → 食咗飯未 重新開啟。</p>
         )}
 
         <p className="text-sm text-slate-500">

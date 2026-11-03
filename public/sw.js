@@ -1,4 +1,4 @@
-// Fit 過林峯 service worker：只負責 Web Push，唔做 cache。
+// 食咗飯未 service worker：只負責 Web Push，唔做 cache。
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
@@ -10,10 +10,10 @@ self.addEventListener("push", (event) => {
     data = { body: event.data ? event.data.text() : "" };
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || "Fit 過林峯", {
+    self.registration.showNotification(data.title || "食咗飯未", {
       body: data.body || "",
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
+      icon: "/icon-192.png?v=3", // 版本號要同 lib/brand.ts 嘅 ASSET_V 一致（scripts/test-brand.ts 會檢查）
+      badge: "/icon-192.png?v=3",
       tag: data.tag,
       data: { url: data.url || "/" },
     }),

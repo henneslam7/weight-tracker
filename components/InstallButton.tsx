@@ -116,7 +116,7 @@ function InstallSheet({ onClose }: { onClose: () => void }) {
               撳右上角嘅 <b>「加入」</b>
             </Step>
             <Step n={4}>
-              返到主畫面，撳 <b>Fit過林峯</b> icon 開啟。要由主畫面開，先收到推送提醒
+              返到主畫面，撳 <b>食咗飯未</b> icon 開啟。要由主畫面開，先收到推送提醒
             </Step>
           </ol>
         ) : (

@@ -1,4 +1,4 @@
--- Fit 過林峯 — Phase 2 schema（食物日記 + AI + 提醒）
+-- 食咗飯未 — Phase 2 schema（食物日記 + AI + 提醒）
 -- 喺 Supabase → SQL Editor 執行。可重複執行（idempotent）。
 -- 要先執行過 schema.sql（Phase 1）。
 

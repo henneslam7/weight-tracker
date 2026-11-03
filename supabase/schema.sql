@@ -1,4 +1,4 @@
--- Fit AI — Phase 1 schema
+-- 食咗飯未 — Phase 1 schema
 -- 喺 Supabase → SQL Editor 執行。可重複執行（idempotent）。
 
 -- ───────────── profiles（每個用戶一行）─────────────

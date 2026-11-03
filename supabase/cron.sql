@@ -1,4 +1,4 @@
--- Fit 過林峯 — 提醒排程（Supabase pg_cron + pg_net）
+-- 食咗飯未 — 提醒排程（Supabase pg_cron + pg_net）
 -- Vercel Hobby 嘅 cron 只可以每日一次，唔夠用，所以改由 Supabase 每 5 分鐘 call 一次 app 嘅 API。
 --
 -- 用法：

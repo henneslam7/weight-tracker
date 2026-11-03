@@ -10,11 +10,12 @@
     "test:calc": "node scripts/test-calc.ts",
     "test:reminders": "node scripts/test-reminders.ts",
     "test:ai": "node scripts/test-ai.ts",
-    "test": "npm run test:calc && npm run test:reminders && npm run test:ai && npm run test:install && npm run test:exercise && npm run test:persona && npm run test:cantonese",
+    "test": "npm run test:calc && npm run test:reminders && npm run test:ai && npm run test:install && npm run test:exercise && npm run test:persona && npm run test:cantonese && npm run test:brand",
     "test:install": "node scripts/test-install.ts",
     "test:exercise": "node scripts/test-exercise.ts",
     "test:persona": "node scripts/test-persona.ts",
-    "test:cantonese": "node scripts/test-cantonese.ts"
+    "test:cantonese": "node scripts/test-cantonese.ts",
+    "test:brand": "node scripts/test-brand.ts"
   },
   "engines": {
     "node": ">=22.6"
