@@ -181,11 +181,11 @@ test("減脂：赤字 ≤ TDEE 15%、每週速度 ≤ 0.25kg、有醫生提示",
   assert.ok(Math.abs(r.plan.weeklyRateKg) <= 0.26);
   assert.ok(r.plan.notes.some((n) => n.includes("醫生")));
 });
-test("一般成人唔受影響：赤字上限仍然 25%，蛋白質 1.8 g/kg", () => {
+test("一般成人：赤字上限 25%，減脂蛋白質 1.6 g/kg（按現時體重）", () => {
   const r = computePlan({ profile: adult, weightKg: 68, today: T });
   assert.ok(r.ok);
   assert.equal(r.plan.senior, false);
-  assert.equal(r.plan.macros.proteinG, Math.round(1.8 * 68));
+  assert.equal(r.plan.macros.proteinG, Math.round(1.6 * 68));
 });
 test("長者蛋白質 1.2 g/kg；calories 下限仍然生效", () => {
   const r = computePlan({ profile: base, weightKg: 68, today: T });

@@ -86,14 +86,17 @@ test("維持：target = TDEE", () => {
   assert.equal(r.plan.targetCalories, r.plan.tdee);
   assert.equal(r.plan.dailyDeltaKcal, 0);
 });
-test("減脂 0.5kg/週 ≈ 550 kcal 赤字", () => {
+test("減脂：舊 0.5kg/週 → 標準檔位，赤字 = TDEE 嘅 17.5%", () => {
   const r = computePlan({
     profile: { ...base, goal: "lose", target_weight_kg: 70, weekly_rate_kg: 0.5 },
     weightKg: 80,
     today: TODAY,
   });
   assert.ok(r.ok);
-  assert.equal(r.plan.dailyDeltaKcal, -550);
+  assert.equal(r.plan.pace, "standard");
+  assert.equal(r.plan.status, "ok");
+  assert.equal(r.plan.dailyDeltaKcal, -475);
+  assert.ok(Math.abs(r.plan.deficitRatio - 0.175) < 0.002);
 });
 test("減脂赤字不超過 TDEE 25%", () => {
   // 女、細隻、少活動：0.75kg/週 ≈ 825 kcal 會超過 25%
@@ -172,14 +175,15 @@ test("增肌盈餘最多 0.5kg/週 ≈ 550 kcal", () => {
   assert.ok(r.ok);
   assert.equal(r.plan.dailyDeltaKcal, 550);
 });
-test("Macros：蛋白質 1.8g/kg、脂肪 25%", () => {
+test("Macros：維持 1.4g/kg、脂肪 25%，三大營養素加埋 ≈ 目標（≤10 kcal）", () => {
   const r = computePlan({ profile: base, weightKg: 80, today: TODAY });
   assert.ok(r.ok);
-  assert.equal(r.plan.macros.proteinG, 144);
+  assert.equal(r.plan.macros.proteinG, 112);
+  assert.equal(r.plan.proteinBasisKg, 80);
   assert.equal(r.plan.macros.fatG, Math.round((r.plan.targetCalories * 0.25) / 9));
   const total =
     r.plan.macros.proteinG * 4 + r.plan.macros.fatG * 9 + r.plan.macros.carbsG * 4;
-  assert.ok(Math.abs(total - r.plan.targetCalories) <= 6);
+  assert.ok(Math.abs(total - r.plan.targetCalories) <= 10);
 });
 test("未滿 18 歲拒絕", () => {
   const r = computePlan({

@@ -273,6 +273,8 @@ export default function Home() {
       )}
       {tab === "calc" && (
         <Calculator
+          userId={uid}
+          onChanged={() => void load()}
           profile={profile}
           plan={plan}
           planError={planError}

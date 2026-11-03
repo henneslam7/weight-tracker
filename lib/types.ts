@@ -7,14 +7,42 @@ export type ActivityLevel =
   | "very_active";
 export type Goal = "lose" | "maintain" | "gain";
 
+export type StepsRange = "lt3000" | "3000_4999" | "5000_6999" | "7000_9999" | "gte10000" | "unknown";
+export type WorkActivity = "mostly_sitting" | "mixed" | "standing_walking" | "manual_labor" | "unknown";
+export type ExerciseKind = "none" | "resistance" | "cardio" | "mixed" | "other";
+export type Intensity = "light" | "moderate" | "vigorous";
+export type ExerciseInSteps = "yes" | "no" | "unknown";
+export type StepSource = "device" | "manual" | "estimate";
+export type StepCoverage = "high" | "medium" | "low";
+export type Pace = "gentle" | "standard" | "faster" | "custom";
+export type FixedPaceLike = Exclude<Pace, "custom">;
+/** 安全篩查結果：clear = 已答、冇風險；needs_review = 有風險，要專業評估；not_assessed = 未答／唔想答（唔當安全） */
+export type RiskReview = "clear" | "needs_review" | "not_assessed";
+
 export interface Profile {
   sex: Sex;
   birth_date: string; // YYYY-MM-DD（本地日期）
   height_cm: number;
-  activity_level: ActivityLevel;
+  /** 舊版單一活動量。新版用問卷；冇問卷資料時先用呢個做低信心估算 */
+  activity_level: ActivityLevel | null;
   goal: Goal;
   target_weight_kg: number | null;
   weekly_rate_kg: number | null;
+  // ── TDEE v2（全部可選：未跑 schema_tdee.sql 之前唔存在）──
+  steps_range?: StepsRange | null;
+  mean_steps_28d?: number | null;
+  step_source?: StepSource | null;
+  step_coverage?: StepCoverage | null;
+  work_activity?: WorkActivity | null;
+  exercise_type?: ExerciseKind | null;
+  exercise_sessions_per_week?: number | null;
+  exercise_minutes?: number | null;
+  exercise_intensity?: Intensity | null;
+  exercise_included_in_steps?: ExerciseInSteps | null;
+  pace?: Pace | null;
+  custom_kcal?: number | null;
+  risk_review?: RiskReview | null;
+  formula_version?: string | null;
 }
 
 export interface WeightLog {
