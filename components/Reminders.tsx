@@ -9,6 +9,7 @@ import {
   isStandalone,
   pushSupported,
 } from "@/lib/push-client";
+import { friendlyPushError, withTimeout } from "@/lib/push-errors";
 import { DEFAULT_SETTINGS, type ReminderSettings } from "@/lib/reminders";
 import { vapidKeyProblem, vapidKeyToBytes } from "@/lib/vapid";
 import { getSupabase } from "@/lib/supabase";
@@ -26,17 +27,16 @@ const ROWS: { key: TimeKey; label: string; hint?: string }[] = [
   { key: "evening", label: "夜晚補記提醒", hint: "漏記體重或食物先提醒" },
 ];
 
-/** 將瀏覽器嘅英文錯誤轉做人話（唔好直接掟英文畀用戶） */
-function friendlyPushError(e: unknown): string {
-  const name = e instanceof Error ? e.name : "";
-  const msg = e instanceof Error ? e.message : String(e);
-  if (name === "InvalidCharacterError" || /invalid characters?|not correctly encoded/i.test(msg)) {
-    return "推送金鑰（VAPID）格式有問題，瀏覽器解碼唔到。請檢查 Vercel 嘅 NEXT_PUBLIC_VAPID_PUBLIC_KEY 有冇多咗空格、引號或者換行，重新貼上再 Redeploy。";
-  }
-  if (name === "NotAllowedError") return "未獲得通知權限。請喺 iPhone 設定 → 通知 → 食咗飯未 開啟。";
-  if (name === "AbortError" || name === "InvalidStateError") return "推送服務暫時連唔到，請稍後再試，或者重新由主畫面開啟 app。";
-  return msg || "開啟通知失敗";
+interface Diag {
+  supported: boolean;
+  standalone: boolean;
+  perm: string;
+  sw: boolean;
+  sub: boolean;
+  registered: boolean | null;
+  key: string;
 }
+const PERM_TEXT: Record<string, string> = { granted: "已允許", denied: "已拒絕", default: "未問過", unsupported: "唔支援" };
 
 export default function Reminders({ userId }: { userId: string }) {
   const [settings, setSettings] = useState<ReminderSettings>(DEFAULT_SETTINGS);
@@ -46,18 +46,43 @@ export default function Reminders({ userId }: { userId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [step, setStep] = useState<string | null>(null);
+  const [half, setHalf] = useState(false);   // 已授權／已訂閱，但未登記入伺服器
+  const [diag, setDiag] = useState<Diag | null>(null);
 
   const supported = typeof window !== "undefined" && pushSupported();
   const needsInstall = typeof window !== "undefined" && isIos() && !isStandalone();
 
   const refresh = useCallback(async () => {
+    const standalone = isStandalone();
+    const key = vapidKeyProblem(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) ?? "正常";
     if (!pushSupported()) {
       setPerm("unsupported");
+      setDiag({ supported: false, standalone, perm: "unsupported", sw: false, sub: false, registered: null, key });
       return;
     }
     setPerm(Notification.permission);
-    setSubscribed((await getExistingSubscription()) !== null);
+    const reg = await navigator.serviceWorker.getRegistration("/sw.js");
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    let registered: boolean | null = null;
+    if (sub) {
+      const { count, error } = await getSupabase()
+        .from("push_subscriptions")
+        .select("id", { count: "exact", head: true })
+        .eq("endpoint", sub.endpoint);
+      registered = error ? null : (count ?? 0) > 0;
+    }
+    setSubscribed(sub !== null && registered === true);
+    setHalf(sub !== null && registered !== true);
+    setDiag({ supported: true, standalone, perm: Notification.permission, sw: reg !== undefined, sub: sub !== null, registered, key });
   }, []);
+
+  // 由「設定」app 返嚟、或者切換返嚟，重新對一次狀態
+  useEffect(() => {
+    const on = () => document.visibilityState === "visible" && void refresh();
+    document.addEventListener("visibilitychange", on);
+    return () => document.removeEventListener("visibilitychange", on);
+  }, [refresh]);
 
   useEffect(() => {
     void refresh();
@@ -88,21 +113,32 @@ export default function Reminders({ userId }: { userId: string }) {
     }
     setBusy(true);
     try {
-      const reg = await getRegistration();
-      const permission = await Notification.requestPermission(); // 必須由撳掣觸發
+      // 第一步一定要係問權限：iOS 要求喺撳掣嗰一刻（用戶手勢）內就問。
+      // 之前先 await 服務註冊再問，iOS 可能唔彈提示，所以你見到「撳咗冇反應」。
+      setStep("請求通知權限…");
+      const permission = await Notification.requestPermission();
       setPerm(permission);
       if (permission !== "granted") {
-        setError("未獲得通知權限。請喺 iPhone 設定 → 通知 → 食咗飯未 開啟。");
+        setError(
+          permission === "denied"
+            ? "通知權限被拒絕。請去 iPhone 設定 → 通知 → 食咗飯未 重新開啟。"
+            : "冇彈出權限提示，或者你冇揀「允許」。請再撳一次「開啟通知」，並揀「允許」。",
+        );
         return;
       }
+      setStep("註冊服務…");
+      const reg = await withTimeout(getRegistration(), 15_000, "註冊服務等咗太耐");
+      setStep("訂閱推送…");
       const sub =
         (await reg.pushManager.getSubscription()) ??
-        (await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: vapidKeyToBytes(vapid),
-        }));
+        (await withTimeout(
+          reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKeyToBytes(vapid) }),
+          20_000,
+          "訂閱推送等咗太耐",
+        ));
       const json = sub.toJSON();
-      if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error("訂閱資料唔完整");
+      if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error("訂閱資料唔完整，請重新試。");
+      setStep("儲存訂閱…");
       const { error: dbErr } = await getSupabase().from("push_subscriptions").upsert(
         {
           user_id: userId,
@@ -114,11 +150,13 @@ export default function Reminders({ userId }: { userId: string }) {
         { onConflict: "endpoint" },
       );
       if (dbErr) throw dbErr;
-      setSubscribed(true);
+      await refresh();      // 以瀏覽器同伺服器真實狀態為準
       setMsg("已開啟通知。撳「發送測試通知」睇下收唔收到。");
     } catch (e) {
       setError(friendlyPushError(e));
+      void refresh();
     } finally {
+      setStep(null);
       setBusy(false);
     }
   }
@@ -196,12 +234,15 @@ export default function Reminders({ userId }: { userId: string }) {
         )}
 
         <p className="text-sm text-slate-500">
-          狀態：{subscribed ? "✅ 呢部裝置已開啟" : "未開啟"}
+          狀態：{subscribed ? "✅ 呢部裝置已開啟" : half ? "⚠️ 已授權，但未完成登記" : "未開啟"}
         </p>
+        {half && !busy && (
+          <p className={infoBox}>呢部裝置已經授權推送，但未登記入伺服器。撳「開啟通知」完成最後一步。</p>
+        )}
 
         {!subscribed ? (
           <button className={btnPrimary} disabled={busy || !supported || needsInstall} onClick={() => void enable()}>
-            開啟通知
+            {busy ? (step ?? "處理中…") : "開啟通知"}
           </button>
         ) : (
           <>
@@ -212,6 +253,20 @@ export default function Reminders({ userId }: { userId: string }) {
               關閉呢部裝置嘅通知
             </button>
           </>
+        )}
+        {diag && (
+          <details className="text-xs text-slate-500">
+            <summary className="cursor-pointer">診斷資料（開唔到通知先需要睇）</summary>
+            <ul className="mt-1 space-y-0.5 pl-4">
+              <li>瀏覽器支援推送：{diag.supported ? "有" : "冇"}</li>
+              <li>由主畫面開啟：{diag.standalone ? "係" : "唔係（iPhone 一定要由主畫面開）"}</li>
+              <li>通知權限：{PERM_TEXT[diag.perm] ?? diag.perm}</li>
+              <li>服務（Service Worker）：{diag.sw ? "已註冊" : "未註冊"}</li>
+              <li>瀏覽器訂閱：{diag.sub ? "有" : "冇"}</li>
+              <li>伺服器登記：{diag.registered === null ? (diag.sub ? "讀取失敗（未跑 schema_phase2.sql？）" : "—") : diag.registered ? "已登記" : "未登記"}</li>
+              <li>VAPID 公開 key：{diag.key}</li>
+            </ul>
+          </details>
         )}
       </section>
 

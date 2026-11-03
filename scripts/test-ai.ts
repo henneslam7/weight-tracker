@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { AiError } from "../lib/ai/errors.ts";
 import { buildRequestBody, callGemini, readConfig } from "../lib/ai/gemini.ts";
+import { usageLine } from "../lib/ai/gemini.ts";
 import { estimateFoodWithRoast } from "../lib/ai/index.ts";
 import { MAX_IMAGE_BYTES, validateImage } from "../lib/ai/image.ts";
 import { parseRoast, roastPrompt, withRoastSchema } from "../lib/ai/roastai.ts";
@@ -262,6 +263,27 @@ await test("estimateFoodWithRoast：唔安全 → fallback；冇食物 → none�
   assert.equal((await estimateFoodWithRoast("x", { tone: "spicy", remainingKcal: 500 }, cfg2, fakeWith({ items: [goodItem], roast_who: "chan", roast: "你好肥，唔好再食喇" }))).roast.state, "fallback");
   assert.equal((await estimateFoodWithRoast("x", { tone: "spicy", remainingKcal: 500 }, cfg2, fakeWith({ items: [], roast_who: "chan", roast: GOOD[0] }))).roast.state, "none");
   assert.equal((await estimateFoodWithRoast("x", { tone: "neighbour", remainingKcal: 500 }, cfg2, fakeWith({ items: [goodItem], roast_who: "chan", roast: "" }))).roast.state, "none");
+});
+
+
+console.log("usage（成本對數）");
+await test("usageLine：只輸出 token 數字（含 thinking），冇內容；缺欄位當 0", () => {
+  assert.equal(usageLine({ promptTokenCount: 812, candidatesTokenCount: 143, thoughtsTokenCount: 2100 }), "[ai] tokens in=812 out=143 think=2100");
+  assert.equal(usageLine({ promptTokenCount: 5 }), "[ai] tokens in=5 out=0 think=0");
+  assert.equal(usageLine(undefined), null);
+});
+await test("callGemini 會 log token，但唔會 log 用戶文字或模型輸出", async () => {
+  const logs: string[] = [];
+  const orig = console.log;
+  console.log = (...a: unknown[]) => { logs.push(a.join(" ")); };
+  try {
+    const fake = (async () =>
+      new Response(JSON.stringify({ usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 7 }, candidates: [{ content: { parts: [{ text: JSON.stringify({ items: [] }) }] } }] }), { status: 200 })) as unknown as typeof fetch;
+    await callGemini(cfg, "我嘅秘密食物：榴槤雪糕", fake);
+  } finally {
+    console.log = orig;
+  }
+  assert.deepEqual(logs, ["[ai] tokens in=100 out=20 think=7"]);
 });
 
 console.log(`\n${passed} 項測試全部通過`);

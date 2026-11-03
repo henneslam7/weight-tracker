@@ -71,7 +71,21 @@ function extractJson(text: string): unknown {
   }
 }
 
+interface Usage {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  thoughtsTokenCount?: number;
+}
+
+/** 只記 token 數（唔記任何內容），用嚟對返真實成本：Vercel → Logs 搵 [ai] tokens */
+export function usageLine(u: Usage | undefined): string | null {
+  if (!u) return null;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return `[ai] tokens in=${n(u.promptTokenCount)} out=${n(u.candidatesTokenCount)} think=${n(u.thoughtsTokenCount)}`;
+}
+
 interface GeminiResponse {
+  usageMetadata?: Usage;
   promptFeedback?: { blockReason?: string };
   candidates?: { content?: { parts?: { text?: string }[] } }[];
 }
@@ -117,6 +131,8 @@ export async function generateJson(
   }
 
   const json = (await res.json()) as GeminiResponse;
+  const usage = usageLine(json.usageMetadata);
+  if (usage) console.log(usage);
   if (json.promptFeedback?.blockReason) {
     throw new AiError("blocked", "呢段文字未能估算");
   }
