@@ -12,6 +12,7 @@ import {
 } from "@/lib/push-client";
 import { DEFAULT_SETTINGS, type ReminderSettings } from "@/lib/reminders";
 import { getSupabase } from "@/lib/supabase";
+import InstallButton from "./InstallButton";
 import { btnGhost, btnPrimary, card, errorBox, infoBox, input } from "./ui";
 
 type TimeKey = "weight" | "breakfast" | "lunch" | "dinner" | "snack" | "evening";
@@ -170,9 +171,12 @@ export default function Reminders({ userId }: { userId: string }) {
           </p>
         )}
         {needsInstall && (
-          <p className={infoBox}>
-            iPhone 要先用 Safari 開呢個網頁 → 分享掣 → <b>加入主畫面</b>，再由主畫面嘅 icon 開啟，先可以開通知。
-          </p>
+          <div className="space-y-2">
+            <p className={infoBox}>
+              iPhone 要先加入主畫面，再由主畫面嘅 icon 開啟，先可以開通知。
+            </p>
+            <InstallButton variant="primary" />
+          </div>
         )}
         {perm === "denied" && (
           <p className={errorBox}>通知權限被拒絕。請去 iPhone 設定 → 通知 → Fit過林峯 重新開啟。</p>

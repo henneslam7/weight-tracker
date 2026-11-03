@@ -13,6 +13,7 @@ import { formatShort, toDateStr } from "@/lib/date";
 import { sumFood } from "@/lib/food";
 import type { FoodLog, Profile, WeightLog } from "@/lib/types";
 import IntakeProgress from "./IntakeProgress";
+import { InstallBanner } from "./InstallButton";
 import { card, DISCLAIMER, infoBox } from "./ui";
 
 interface Props {
@@ -49,6 +50,8 @@ export default function Today({
         <p className="text-lg font-semibold text-emerald-600">{greeting(now.getHours())}</p>
         <p className="text-sm text-slate-500">{formatShort(today)}</p>
       </div>
+
+      <InstallBanner />
 
       {!loggedToday && (
         <button

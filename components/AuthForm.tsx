@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { APP_NAME, TAGLINE } from "@/lib/copy";
 import { getSupabase } from "@/lib/supabase";
+import InstallButton from "./InstallButton";
 import { btnPrimary, card, errorBox, infoBox, input, label } from "./ui";
 
 export default function AuthForm() {
@@ -89,6 +90,9 @@ export default function AuthForm() {
           {mode === "login" ? "未有帳戶？註冊" : "已有帳戶？登入"}
         </button>
       </form>
+      <div className="text-center">
+        <InstallButton variant="link" label="📲 加入主畫面" />
+      </div>
     </main>
   );
 }

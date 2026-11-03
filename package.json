@@ -10,7 +10,8 @@
     "test:calc": "node scripts/test-calc.ts",
     "test:reminders": "node scripts/test-reminders.ts",
     "test:ai": "node scripts/test-ai.ts",
-    "test": "npm run test:calc && npm run test:reminders && npm run test:ai"
+    "test": "npm run test:calc && npm run test:reminders && npm run test:ai && npm run test:install",
+    "test:install": "node scripts/test-install.ts"
   },
   "engines": {
     "node": ">=22.6"
