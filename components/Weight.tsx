@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { movingAverage, weeklyTrendKg } from "@/lib/calc";
+import { savedMessage, WEIGHT_EMPTY } from "@/lib/copy";
 import { formatShort, isValidDateStr, toDateStr } from "@/lib/date";
 import { getSupabase } from "@/lib/supabase";
 import type { WeightLog } from "@/lib/types";
@@ -20,6 +21,7 @@ export default function Weight({ userId, logs, targetKg, onChanged }: Props) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
 
   const points = useMemo(() => movingAverage(logs), [logs]);
   const trend = useMemo(() => weeklyTrendKg(logs), [logs]);
@@ -28,6 +30,7 @@ export default function Weight({ userId, logs, targetKg, onChanged }: Props) {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setOk(null);
     const kg = Number(value);
     if (!isValidDateStr(date) || date > toDateStr()) {
       setError("請揀正確嘅日期（唔可以係未來）。");
@@ -48,6 +51,7 @@ export default function Weight({ userId, logs, targetKg, onChanged }: Props) {
         );
       if (error) throw error;
       setValue("");
+      setOk(savedMessage(date));
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "儲存失敗，請再試。");
@@ -94,6 +98,9 @@ export default function Weight({ userId, logs, targetKg, onChanged }: Props) {
           </div>
         </div>
         {error && <p className={errorBox}>{error}</p>}
+        {ok && (
+          <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{ok}</p>
+        )}
         <button className={btnPrimary} disabled={busy}>
           {busy ? "儲存中…" : "儲存"}
         </button>
@@ -116,7 +123,7 @@ export default function Weight({ userId, logs, targetKg, onChanged }: Props) {
       <section className={card}>
         <h2 className="mb-2 font-semibold">最近記錄</h2>
         {recent.length === 0 ? (
-          <p className="text-sm text-slate-400">未有記錄。</p>
+          <p className="text-sm text-slate-400">{WEIGHT_EMPTY}</p>
         ) : (
           <ul className="divide-y divide-slate-100">
             {recent.map((l) => (

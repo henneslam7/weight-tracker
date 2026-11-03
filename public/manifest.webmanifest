@@ -1,7 +1,7 @@
 {
-  "name": "Fit AI",
-  "short_name": "Fit AI",
-  "description": "個人健身助手：calories、體重、AI 教練",
+  "name": "Fit 過林峯",
+  "short_name": "Fit過林峯",
+  "description": "同林峯一樣靚仔，仲要 fit 過佢",
   "lang": "zh-HK",
   "start_url": "/",
   "scope": "/",

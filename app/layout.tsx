@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
+import { APP_NAME, APP_SHORT_NAME, TAGLINE } from "@/lib/copy";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fit AI",
-  description: "個人健身助手：calories、體重、AI 教練",
+  title: APP_NAME,
+  description: TAGLINE,
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "Fit AI", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: APP_SHORT_NAME, statusBarStyle: "default" },
   icons: { apple: "/apple-touch-icon.png" },
 };
 

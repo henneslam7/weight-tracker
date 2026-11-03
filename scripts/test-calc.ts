@@ -10,6 +10,13 @@ import {
   validateProfile,
   weeklyTrendKg,
 } from "../lib/calc.ts";
+import {
+  goalMessage,
+  pick,
+  REMINDERS,
+  trendMessage,
+  WEIGHT_NEED_MORE,
+} from "../lib/copy.ts";
 import { addDays, diffDays, isValidDateStr, toDateStr } from "../lib/date.ts";
 import type { Profile, WeightLog } from "../lib/types.ts";
 
@@ -255,6 +262,27 @@ test("每週趨勢：每日跌 0.1kg → -0.7kg/週", () => {
     data.push([addDays("2026-10-25", i), Math.round((80 - 0.1 * i) * 10) / 10]);
   }
   assert.equal(weeklyTrendKg(logs(data)), -0.7);
+});
+
+console.log("copy");
+test("減得太快 → 認真提醒，唔打氣", () => {
+  const m = trendMessage("lose", -1.5);
+  assert.ok(m.includes("醫生"));
+  assert.ok(!m.includes("啱晒靚仔路線"));
+});
+test("減脂趨勢向下 → 打氣", () => {
+  assert.ok(trendMessage("lose", -0.5).includes("靚仔"));
+});
+test("冇趨勢 → 提示多記", () => {
+  assert.equal(trendMessage("gain", null), WEIGHT_NEED_MORE);
+});
+test("goalMessage：達標 / 未達標 / 維持", () => {
+  assert.ok(goalMessage("lose", 70, 70)?.includes("達標"));
+  assert.ok(goalMessage("lose", 75.04, 70)?.includes("5 kg"));
+  assert.equal(goalMessage("maintain", 70, null), null);
+});
+test("pick 同一種子結果一致", () => {
+  assert.equal(pick(REMINDERS.weight, "2026-11-03"), pick(REMINDERS.weight, "2026-11-03"));
 });
 
 console.log(`\n${passed} 項測試全部通過`);

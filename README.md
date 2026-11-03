@@ -1,6 +1,6 @@
-# Fit AI
+# Fit 過林峯
 
-個人 AI 健身 web app（單一用戶、mobile-first PWA）。
+個人 AI 健身 web app（單一用戶、mobile-first PWA）。所有提示、提醒、鼓勵文案都集中喺 `lib/copy.ts`，語氣係「同林峯一樣靚仔，仲要 fit 過佢」。
 
 **Phase 1（呢個 repo 而家）**：登入／註冊、onboarding、BMR／TDEE／calories／macros 計算機、體重記錄、7 日移動平均趨勢圖、PWA。
 

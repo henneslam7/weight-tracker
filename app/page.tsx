@@ -8,6 +8,7 @@ import ProfileForm from "@/components/ProfileForm";
 import Today from "@/components/Today";
 import Weight from "@/components/Weight";
 import { computePlan } from "@/lib/calc";
+import { LOADING_TEXT } from "@/lib/copy";
 import { toDateStr } from "@/lib/date";
 import { getSupabase } from "@/lib/supabase";
 import type { Profile, WeightLog } from "@/lib/types";
@@ -103,11 +104,11 @@ export default function Home() {
     setTab("today");
   }
 
-  if (!authReady) return <Centered>載入中…</Centered>;
+  if (!authReady) return <Centered>{LOADING_TEXT}</Centered>;
   if (!session) {
     return loadError ? <Centered>{loadError}</Centered> : <AuthForm />;
   }
-  if (!dataReady) return <Centered>載入中…</Centered>;
+  if (!dataReady) return <Centered>{LOADING_TEXT}</Centered>;
   if (loadError) {
     return (
       <Centered>
