@@ -30,24 +30,39 @@ async function run(req: Request) {
   const admin = createAdmin();
   const { date, time } = nowInZone();
 
-  const { data: rows, error } = await admin.from("reminder_settings").select("*");
-  if (error) return json({ error: "server" }, 500);
+  // 有開通知（有訂閱）嘅用戶先處理。未儲存過設定就用預設值，唔使撳「儲存設定」都收到提醒。
+  const [subsAll, settingsAll] = await Promise.all([
+    admin.from("push_subscriptions").select("id, user_id, endpoint, p256dh, auth"),
+    admin.from("reminder_settings").select("*"),
+  ]);
+  if (subsAll.error || settingsAll.error) return json({ error: "server" }, 500);
+
+  const subsByUser = new Map<string, NonNullable<typeof subsAll.data>>();
+  for (const s of subsAll.data ?? []) {
+    const list = subsByUser.get(s.user_id as string) ?? [];
+    list.push(s);
+    subsByUser.set(s.user_id as string, list);
+  }
+  const settingsByUser = new Map(
+    (settingsAll.data ?? []).map((r) => [r.user_id as string, r as Record<string, unknown>]),
+  );
 
   let sent = 0;
   let skipped = 0;
 
-  for (const row of rows ?? []) {
-    const userId = row.user_id as string;
+  for (const [userId, subs] of subsByUser) {
+    const row = settingsByUser.get(userId);
     const settings: ReminderSettings = { ...DEFAULT_SETTINGS };
-    for (const k of Object.keys(DEFAULT_SETTINGS) as (keyof ReminderSettings)[]) {
-      if (row[k] !== undefined && row[k] !== null) {
-        (settings[k] as unknown) =
-          typeof DEFAULT_SETTINGS[k] === "string" ? String(row[k]).slice(0, 5) : row[k];
+    if (row) {
+      for (const k of Object.keys(DEFAULT_SETTINGS) as (keyof ReminderSettings)[]) {
+        if (row[k] !== undefined && row[k] !== null) {
+          (settings[k] as unknown) =
+            typeof DEFAULT_SETTINGS[k] === "string" ? String(row[k]).slice(0, 5) : row[k];
+        }
       }
     }
 
-    const [subsR, weightR, foodR, lastWR, lastFR, sentR] = await Promise.all([
-      admin.from("push_subscriptions").select("id, endpoint, p256dh, auth").eq("user_id", userId),
+    const [weightR, foodR, lastWR, lastFR, sentR] = await Promise.all([
       admin.from("weight_logs").select("id").eq("user_id", userId).eq("logged_on", date).limit(1),
       admin.from("food_logs").select("meal_type").eq("user_id", userId).eq("logged_on", date),
       admin.from("weight_logs").select("logged_on").eq("user_id", userId)
@@ -57,7 +72,6 @@ async function run(req: Request) {
       admin.from("reminder_log").select("kind").eq("user_id", userId).eq("sent_on", date),
     ]);
 
-    const subs = subsR.data ?? [];
     if (subs.length === 0) {
       skipped++;
       continue;
@@ -105,7 +119,7 @@ async function run(req: Request) {
     }
   }
 
-  return json({ ok: true, date, time, users: rows?.length ?? 0, sent, skipped });
+  return json({ ok: true, date, time, users: subsByUser.size, sent, skipped });
 }
 
 export async function POST(req: Request) {
