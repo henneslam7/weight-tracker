@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
-import { AiError, estimateFood, MAX_INPUT_CHARS, validateImage, type ImageInput } from "@/lib/ai";
+import {
+  AiError,
+  estimateFood,
+  estimateFoodWithRoast,
+  MAX_INPUT_CHARS,
+  validateImage,
+  type ImageInput,
+  type RoastRequest,
+} from "@/lib/ai";
 import { nowInZone } from "@/lib/date";
 import { authenticate } from "@/lib/server/auth";
 
@@ -25,8 +33,14 @@ export async function POST(req: Request) {
   }
   let text = "";
   let image: ImageInput | undefined;
+  let roast: RoastRequest | undefined;
   try {
-    const body = (await req.json()) as { text?: unknown; image?: unknown };
+    const body = (await req.json()) as { text?: unknown; image?: unknown; roast?: unknown };
+    // roast 由前端按用戶設定同敏感時刻決定要唔要；server 只收 neighbour／spicy，溫柔唔收
+    const r = body.roast as { tone?: unknown; remainingKcal?: unknown } | undefined;
+    if (r && (r.tone === "neighbour" || r.tone === "spicy") && typeof r.remainingKcal === "number" && Number.isFinite(r.remainingKcal) && r.remainingKcal > 0) {
+      roast = { tone: r.tone, remainingKcal: Math.min(r.remainingKcal, 10_000) };
+    }
     text = typeof body.text === "string" ? body.text.trim() : "";
     if (body.image !== undefined && body.image !== null) image = validateImage(body.image);
   } catch (e) {
@@ -61,6 +75,10 @@ export async function POST(req: Request) {
 
   // 4. 估算
   try {
+    if (roast) {
+      const out = await estimateFoodWithRoast({ text, image }, roast);
+      return json({ items: out.items, roast: out.roast, used, limit });
+    }
     const items = await estimateFood({ text, image });
     return json({ items, used, limit });
   } catch (e) {

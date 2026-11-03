@@ -9,6 +9,7 @@ import { MEAL_LABEL, MEAL_TYPES } from "@/lib/food";
 import { getSupabase } from "@/lib/supabase";
 import type { MealType, SavedMeal, Tone } from "@/lib/types";
 import { Say } from "./Persona";
+import type { Line } from "@/lib/copy";
 import { btnGhost, btnPrimary, errorBox, infoBox, input, label } from "./ui";
 
 interface Draft {
@@ -94,6 +95,8 @@ export default function FoodAdd({ userId, date, meal, onMealChange, roast, onWan
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Gemini 即興 roast：ai = 用佢；none = 佢話冇嘢好 roast；null = 冇（用固定句子） */
+  const [aiRoast, setAiRoast] = useState<{ state: "ai"; line: Line } | { state: "none" } | null>(null);
   const [saved, setSaved] = useState<SavedMeal[]>([]);
   const [image, setImage] = useState<PreparedImage | null>(null);
   const [imgBusy, setImgBusy] = useState(false);
@@ -150,6 +153,7 @@ export default function FoodAdd({ userId, date, meal, onMealChange, roast, onWan
     setError(null);
     setNotice(null);
     clearImage();
+    setAiRoast(null);
     setDrafts(m === "manual" ? [emptyDraft()] : []);
   }
 
@@ -161,6 +165,9 @@ export default function FoodAdd({ userId, date, meal, onMealChange, roast, onWan
       return;
     }
     const fromPhoto = image !== null;
+    // 要唔要 roast 由設定同敏感時刻決定（溫柔、關咗、超標等就唔問 AI roast）
+    const wantRoast = roast !== null && roast.enabled && roast.tone !== "soft";
+    setAiRoast(null);
     setBusy(true);
     try {
       const res = await authedFetch("/api/ai/food", {
@@ -168,11 +175,13 @@ export default function FoodAdd({ userId, date, meal, onMealChange, roast, onWan
         body: JSON.stringify({
           text,
           image: image ? { mimeType: image.mimeType, data: image.data } : undefined,
+          roast: wantRoast ? { tone: roast.tone, remainingKcal: roast.remainingKcal } : undefined,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as {
         items?: AiItem[];
         message?: string;
+        roast?: { state?: string; who?: "chan" | "foon"; text?: string };
       };
       if (!res.ok) {
         setError(body.message ?? "AI 暫時用唔到，可以手動輸入。");
@@ -184,6 +193,11 @@ export default function FoodAdd({ userId, date, meal, onMealChange, roast, onWan
         return;
       }
       clearImage();
+      if (body.roast?.state === "ai" && body.roast.text) {
+        setAiRoast({ state: "ai", line: { who: body.roast.who === "foon" ? "foon" : "chan", text: body.roast.text } });
+      } else if (body.roast?.state === "none") {
+        setAiRoast({ state: "none" });
+      }
       setDrafts(
         items.map((i) => ({
           key: crypto.randomUUID(),
@@ -281,11 +295,13 @@ export default function FoodAdd({ userId, date, meal, onMealChange, roast, onWan
   const isAiDraft = drafts.some((d) => d.raw);
   const roastResult = useMemo(() => {
     if (!roast) return null;
+    if (aiRoast?.state === "ai") return { line: aiRoast.line, rule: "ai" };
+    if (aiRoast?.state === "none") return null;
     const items = drafts
       .map((d) => ({ name: d.name.trim(), calories: Number(d.calories) }))
       .filter((i) => i.name && Number.isFinite(i.calories) && i.calories > 0);
     return foodRoast({ items, remainingKcal: roast.remainingKcal, tone: roast.tone, enabled: roast.enabled, seed: `${date}:${meal}` });
-  }, [roast, drafts, date, meal]);
+  }, [roast, drafts, date, meal, aiRoast]);
 
   return (
     <div className="space-y-3">
@@ -418,6 +434,7 @@ export default function FoodAdd({ userId, date, meal, onMealChange, roast, onWan
               >
                 換個選擇？叫 AI 幫你揀
               </button>
+              {roastResult.rule === "ai" && <span className="mt-1 block text-xs text-stone-400">AI 即興</span>}
             </Say>
           )}
           {isAiDraft && <p className={infoBox}>{AI_ESTIMATE_NOTE}</p>}
@@ -492,7 +509,7 @@ export default function FoodAdd({ userId, date, meal, onMealChange, roast, onWan
             {busy ? "儲存中…" : `儲存到${MEAL_LABEL[meal]}`}
           </button>
           {mode === "ai" && (
-            <button className={btnGhost} onClick={() => setDrafts([])}>
+            <button className={btnGhost} onClick={() => { setDrafts([]); setAiRoast(null); }}>
               重新輸入
             </button>
           )}

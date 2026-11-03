@@ -7,6 +7,7 @@ import { creditFor } from "../lib/exercise.ts";
 import { cardProgress, dayLogFor, levelFor, stampDates, tasksFor, type History } from "../lib/gamify.ts";
 import { defaultPrefs, effectiveTone, normalizePrefs, roastAllowed, sensitiveKind, sensitiveReason } from "../lib/persona.ts";
 import { foodRoast, GENERIC, RULES } from "../lib/roast.ts";
+import { isSafeText } from "../lib/safety.ts";
 import type { MealType, Profile, Tone } from "../lib/types.ts";
 
 let passed = 0;
@@ -21,12 +22,8 @@ function test(name: string, fn: () => void) {
   }
 }
 
-/** 安全檢查：唔鬧身形、唔恐嚇、唔講罪惡／補償、唔叫人少食 */
-const UNSAFE = /肥|胖|瘦|醜|會死|會病|癌|罪惡|壞嘢|補償|懲罰|少食|唔好食|唔准食|食咗要|要補返|運動補|餓/;
-export function safe(text: string): boolean {
-  const t = text.replaceAll("減肥", "").replaceAll("肚餓就食啲嘢先", "");
-  return !UNSAFE.test(t);
-}
+/** 安全檢查改用 lib/safety.ts（同 Gemini roast 用同一套） */
+export const safe = isSafeText;
 
 const TONES: Tone[] = ["soft", "neighbour", "spicy"];
 const KINDS: Kind[] = ["weight", "breakfast", "lunch", "dinner", "snack", "move", "rest", "evening", "inactive", "allDone", "stamp", "goal", "over", "low", "fast", "welcomeBack"];

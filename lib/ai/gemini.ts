@@ -4,6 +4,7 @@
 import { AiError } from "./errors.ts";
 import type { EstimateInput } from "./image.ts";
 import { DEFAULT_IMAGE_TEXT, IMAGE_RULES, SYSTEM_PROMPT, wrapUserText } from "./prompt.ts";
+import { roastPrompt, withRoastSchema, type RoastRequest } from "./roastai.ts";
 import { RESPONSE_SCHEMA } from "./schema.ts";
 
 export interface GeminiConfig {
@@ -45,15 +46,16 @@ export function toBody<S>(req: JsonRequest<S>) {
 }
 
 /** 食物估算（文字／相片）嘅 request */
-export function buildRequestBody(input: string | EstimateInput) {
+export function buildRequestBody(input: string | EstimateInput, roast?: RoastRequest) {
   const { text, image } = typeof input === "string" ? { text: input, image: undefined } : input;
   const parts: Part[] = [];
   if (image) parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
   parts.push({ text: wrapUserText(text.trim() || (image ? DEFAULT_IMAGE_TEXT : "")) });
+  const system = (image ? SYSTEM_PROMPT + IMAGE_RULES : SYSTEM_PROMPT) + (roast ? roastPrompt(roast) : "");
   return toBody({
-    system: image ? SYSTEM_PROMPT + IMAGE_RULES : SYSTEM_PROMPT,
+    system,
     parts,
-    schema: RESPONSE_SCHEMA,
+    schema: roast ? withRoastSchema(RESPONSE_SCHEMA) : RESPONSE_SCHEMA,
   });
 }
 

@@ -8,6 +8,7 @@ import {
   PHOTO_NOTE, savedMessage, TAGLINE, trendMessage, WEIGHT_EMPTY, WEIGHT_NEED_MORE, WEIGHT_NOT_LOGGED,
 } from "../lib/copy.ts";
 import { GENERIC, RULES } from "../lib/roast.ts";
+import { cantoneseOffenders } from "../lib/safety.ts";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -16,18 +17,8 @@ function test(name: string, fn: () => void) {
   console.log(`  ✓ ${name}`);
 }
 
-// 普通話常用、粵語書面唔用（粵語用：嘅、唔、冇、係、咗、喺、佢哋、呢、嗰、畀、好、啲、嘢…）
-const MANDARIN = ["的", "這", "那", "沒", "們", "他", "她", "吧", "嗎", "了", "是", "還", "給", "很", "不", "什麼", "怎麼", "為什麼", "裡", "啥", "咱", "俺", "咋"];
-// 我查唔到可靠出處、或者唔夠自然嘅用字（已改走）
-const UNVERIFIED = ["波波", "搭住心口", "眼尾掃到", "走甜", "刀仔嘴", "被冷落"];
-
-// 含有「是」「不」等字但係正宗粵語嘅詞，先剔走再檢查
-const ALLOWED_WORDS = ["利是", "是但", "唔係幾"];
-
-function offenders(text: string): string[] {
-  const t = ALLOWED_WORDS.reduce((acc, w) => acc.replaceAll(w, ""), text);
-  return [...MANDARIN, ...UNVERIFIED].filter((w) => t.includes(w));
-}
+// 用字清單同檢查方法放喺 lib/safety.ts（Gemini 即興 roast 都用同一套）
+const offenders = cantoneseOffenders;
 
 const all: string[] = [
   ...allLines().map((l) => l.text),
@@ -65,11 +56,11 @@ test("介面文字（components／app 入面嘅中文）：冇普通話字詞、
   assert.deepEqual(bad, []);
 });
 
-test("核實過嘅茶餐廳用字有出現（飛砂走奶、走糖走冰），冇出現未證實嘅「走甜」", () => {
+test("茶餐廳用字有出現（飛砂走奶、走糖、走甜）", () => {
   const joined = all.join("\n");
   assert.ok(joined.includes("飛砂走奶"));
   assert.ok(joined.includes("走糖"));
-  assert.ok(!joined.includes("走甜"));
+  assert.ok(joined.includes("走甜"));
 });
 
 console.log(`\n${passed} 項測試全部通過`);

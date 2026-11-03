@@ -2,7 +2,10 @@
 import assert from "node:assert/strict";
 import { AiError } from "../lib/ai/errors.ts";
 import { buildRequestBody, callGemini, readConfig } from "../lib/ai/gemini.ts";
+import { estimateFoodWithRoast } from "../lib/ai/index.ts";
 import { MAX_IMAGE_BYTES, validateImage } from "../lib/ai/image.ts";
+import { parseRoast, roastPrompt, withRoastSchema } from "../lib/ai/roastai.ts";
+import { isSafeRoast } from "../lib/safety.ts";
 import { MAX_ITEMS, parseEstimate } from "../lib/ai/schema.ts";
 
 let passed = 0;
@@ -190,6 +193,75 @@ await test("callGemini 將相片放入 body（key 仍然只喺 header）", async
   assert.ok(sent.includes("inlineData"));
   assert.ok(sent.includes(JPEG));
   assert.ok(!sent.includes("test-key"));
+});
+
+
+console.log("roast（Gemini 即興）");
+const GOOD = [
+  "珍珠奶茶加布甸？你諗住食咗間糖水舖呀？",
+  "汽水當水飲？水費都唔洗再交。",
+  "又係炸雞？佢哋成日同你講「再嚟多件」，你就真係聽。",
+  "出前一丁加午餐肉加蛋？陳伯活咗幾十年，都冇咁有創意。",
+  "你同甜品嘅關係，比你同記錄嘅關係穩定好多。",
+];
+await test("你同我寫嘅 roast 例句全部過安全檢查", () => {
+  for (const t of GOOD) assert.ok(isSafeRoast(t), t);
+});
+await test("唔合格嘅 AI roast 會被擋：身形、健康恐嚇、罪惡、補償、粗口、普通話、長度、換行、連結", () => {
+  const bad = [
+    "你又食？你咁肥仲食！", "食咗呢啲會病㗎，小心啲。", "呢啲係罪惡嘅食物，你太壞喇。", "食完要去運動補返先得。",
+    "你個廢物，又食炸雞。", "你不要再吃了，這個很壞。", "短", "x".repeat(120), "第一行\n第二行好長好長", "睇下 https://example.com 呢個",
+    "{kcal} 卡？你當自助餐呀？", "你要少食啲呀，聽日唔好食。", "你個死仔又食汽水。", "食咗要餓一餐補返。",
+  ];
+  for (const t of bad) assert.equal(isSafeRoast(t), false, t);
+});
+await test("roastPrompt：帶語氣、剩餘 calories、風格例子同全部規則", () => {
+  const p = roastPrompt({ tone: "spicy", remainingKcal: 640.4 });
+  assert.ok(p.includes("毒舌級") && p.includes("640"));
+  assert.ok(p.includes("唔好評論用戶嘅身形") && p.includes("唔好講健康恐嚇") && p.includes("唔好粗口"));
+  assert.ok(p.includes("水費都唔洗再交") && p.includes("你諗住食咗間糖水舖呀"));
+  assert.ok(roastPrompt({ tone: "neighbour", remainingKcal: 100 }).includes("街坊級"));
+});
+await test("withRoastSchema：加 roast_who、roast 而且必填；唔改原本 schema", () => {
+  const s = withRoastSchema({ properties: { items: { type: "ARRAY" } }, required: ["items"] });
+  assert.deepEqual(s.required, ["items", "roast_who", "roast"]);
+  assert.ok("roast" in s.properties && "items" in s.properties);
+  assert.ok(!("roast" in (buildRequestBody("x").generationConfig.responseSchema.properties as object)));
+});
+await test("request：要 roast 先加 prompt 同 schema；唔要就同原本一樣", () => {
+  const withR = buildRequestBody("珍珠奶茶", { tone: "spicy", remainingKcal: 900 });
+  assert.ok(withR.systemInstruction.parts[0].text.includes("陳伯"));
+  assert.ok("roast" in (withR.generationConfig.responseSchema.properties as object));
+  const plain = buildRequestBody("珍珠奶茶");
+  assert.ok(!plain.systemInstruction.parts[0].text.includes("風格例子"));
+});
+await test("parseRoast：ai／none／fallback", () => {
+  assert.deepEqual(parseRoast({ roast: GOOD[1], roast_who: "foon" }), { state: "ai", who: "foon", text: GOOD[1] });
+  assert.equal(parseRoast({ roast: GOOD[1], roast_who: "邊個" }).state, "ai");
+  assert.deepEqual(parseRoast({ roast: "  ", roast_who: "chan" }), { state: "none" });
+  assert.deepEqual(parseRoast({ roast: "你好肥呀", roast_who: "chan" }), { state: "fallback" });
+  assert.deepEqual(parseRoast({}), { state: "fallback" });
+  assert.deepEqual(parseRoast(null), { state: "fallback" });
+});
+const goodItem = { name: "珍珠奶茶", quantity_text: "1 杯", calories: 450, protein_g: 3, carbs_g: 75, fat_g: 12, confidence: "high" };
+const fakeWith = (body: unknown) => (async () =>
+  new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(body) }] } }] }), { status: 200 })) as unknown as typeof fetch;
+await test("estimateFoodWithRoast：同一次 call 攞到食物同 roast", async () => {
+  let sent = "";
+  const fake = (async (_u: unknown, init?: RequestInit) => {
+    sent = String(init?.body);
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ items: [goodItem], roast_who: "foon", roast: GOOD[0] }) }] } }] }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const r = await estimateFoodWithRoast("珍珠奶茶加布甸", { tone: "spicy", remainingKcal: 900 }, cfg, fake);
+  assert.equal(r.items.length, 1);
+  assert.deepEqual(r.roast, { state: "ai", who: "foon", text: GOOD[0] });
+  assert.ok(sent.includes("roast_who"));
+});
+await test("estimateFoodWithRoast：唔安全 → fallback；冇食物 → none；Gemini 話冇嘢好笑 → none", async () => {
+  const cfg2 = cfg;
+  assert.equal((await estimateFoodWithRoast("x", { tone: "spicy", remainingKcal: 500 }, cfg2, fakeWith({ items: [goodItem], roast_who: "chan", roast: "你好肥，唔好再食喇" }))).roast.state, "fallback");
+  assert.equal((await estimateFoodWithRoast("x", { tone: "spicy", remainingKcal: 500 }, cfg2, fakeWith({ items: [], roast_who: "chan", roast: GOOD[0] }))).roast.state, "none");
+  assert.equal((await estimateFoodWithRoast("x", { tone: "neighbour", remainingKcal: 500 }, cfg2, fakeWith({ items: [goodItem], roast_who: "chan", roast: "" }))).roast.state, "none");
 });
 
 console.log(`\n${passed} 項測試全部通過`);
