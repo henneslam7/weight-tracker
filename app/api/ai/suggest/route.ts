@@ -58,7 +58,15 @@ export async function POST(req: Request) {
       .eq("logged_on", today),
     auth.supabase.from("exercise_logs").select("calories").eq("logged_on", today),
   ]);
-  if (profileR.error || weightR.error || foodR.error || exerciseR.error) {
+  // 運動表未建立（未跑 schema_exercise.sql）或者暫時讀唔到，就當冇運動，唔阻住建議（前端都係咁處理）
+  if (exerciseR.error) console.error(`[ai] suggest: exercise_logs unavailable ${exerciseR.error.code ?? ""}`);
+  if (profileR.error || weightR.error || foodR.error) {
+    const failed = [
+      profileR.error && `profiles:${profileR.error.code ?? ""}`,
+      weightR.error && `weight_logs:${weightR.error.code ?? ""}`,
+      foodR.error && `food_logs:${foodR.error.code ?? ""}`,
+    ].filter(Boolean);
+    console.error(`[ai] suggest read failed ${failed.join(",")}`); // 只記錄表名同錯誤碼，唔記錄資料
     return json({ error: "server", message: "讀取資料失敗，請稍後再試" }, 500);
   }
   const profile = profileR.data as Profile | null;
@@ -69,7 +77,7 @@ export async function POST(req: Request) {
   const planR = computePlan({ profile, weightKg: weight, today });
   if (!planR.ok) return json({ error: "no_plan", message: planR.reason }, 409);
 
-  const budget = dayBudget(planR.plan, sumBurned(exerciseR.data ?? []));
+  const budget = dayBudget(planR.plan, exerciseR.error ? 0 : sumBurned(exerciseR.data ?? []));
   const rem = remaining(budget, sumFood(foodR.data ?? []));
 
   // 剩餘太少／已超標：唔 call AI（慳錢），回覆支持性訊息，唔計入次數
