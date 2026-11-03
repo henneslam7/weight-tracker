@@ -4,6 +4,15 @@ import type { EstimateInput } from "./image.ts";
 import { parseEstimate, type FoodItem } from "./schema.ts";
 
 export { AiError } from "./errors.ts";
+export {
+  canSuggest,
+  MAX_PREF_CHARS,
+  mealMaxKcal,
+  noSuggestNote,
+  suggestMeals,
+  type MealSuggestion,
+  type SuggestMode,
+} from "./suggest.ts";
 export type { FoodItem } from "./schema.ts";
 export { validateImage, MAX_IMAGE_BYTES, type EstimateInput, type ImageInput } from "./image.ts";
 

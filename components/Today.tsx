@@ -22,8 +22,11 @@ interface Props {
   planError: string | null;
   logs: WeightLog[]; // 升序
   foodToday: FoodLog[];
+  /** 今日運動淨消耗 kcal */
+  exerciseBurned: number;
   onGoWeight: () => void;
   onGoFood: () => void;
+  onGoExercise: () => void;
 }
 
 export default function Today({
@@ -32,8 +35,10 @@ export default function Today({
   planError,
   logs,
   foodToday,
+  exerciseBurned,
   onGoWeight,
   onGoFood,
+  onGoExercise,
 }: Props) {
   const now = new Date();
   const today = toDateStr(now);
@@ -66,15 +71,28 @@ export default function Today({
       <section className={card}>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-semibold">今日食物</h2>
-          <button className="text-sm text-emerald-600 underline" onClick={onGoFood}>
-            記錄食物
-          </button>
+          <span className="flex gap-3 text-sm">
+            <button className="text-emerald-600 underline" onClick={onGoFood}>
+              AI 食咩好？
+            </button>
+            <button className="text-emerald-600 underline" onClick={onGoFood}>
+              記錄食物
+            </button>
+          </span>
         </div>
         {planError && <p className={infoBox}>{planError}</p>}
         {!planError && !plan && (
           <p className={infoBox}>記錄體重後，就會計出你嘅每日目標。</p>
         )}
-        {plan && <IntakeProgress plan={plan} totals={sumFood(foodToday)} />}
+        {plan && (
+          <IntakeProgress plan={plan} totals={sumFood(foodToday)} exerciseBurned={exerciseBurned} />
+        )}
+        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
+          <span className="text-slate-500">今日運動 {exerciseBurned} kcal</span>
+          <button className="text-emerald-600 underline" onClick={onGoExercise}>
+            記錄運動
+          </button>
+        </div>
       </section>
 
       <section className={card}>

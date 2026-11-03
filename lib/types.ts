@@ -48,3 +48,16 @@ export interface SavedMeal {
   carbs_g: number;
   fat_g: number;
 }
+
+export type ExerciseSource = "met" | "manual";
+
+export interface ExerciseLog {
+  id: string;
+  logged_on: string; // YYYY-MM-DD（本地日期）
+  exercise_type: string;
+  name: string;
+  duration_min: number | null;
+  /** 淨消耗 kcal */
+  calories: number;
+  source: ExerciseSource;
+}

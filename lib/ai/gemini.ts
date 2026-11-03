@@ -22,22 +22,39 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): GeminiConfig {
   return { apiKey, model };
 }
 
-type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
+export type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
 
+export interface JsonRequest<S> {
+  system: string;
+  parts: Part[];
+  schema: S;
+  temperature?: number;
+}
+
+/** 組 generateContent 嘅 request body（structured JSON output） */
+export function toBody<S>(req: JsonRequest<S>) {
+  return {
+    systemInstruction: { parts: [{ text: req.system }] },
+    contents: [{ role: "user", parts: req.parts }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: req.schema,
+      temperature: req.temperature ?? 0.2,
+    },
+  };
+}
+
+/** 食物估算（文字／相片）嘅 request */
 export function buildRequestBody(input: string | EstimateInput) {
   const { text, image } = typeof input === "string" ? { text: input, image: undefined } : input;
   const parts: Part[] = [];
   if (image) parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
   parts.push({ text: wrapUserText(text.trim() || (image ? DEFAULT_IMAGE_TEXT : "")) });
-  return {
-    systemInstruction: { parts: [{ text: image ? SYSTEM_PROMPT + IMAGE_RULES : SYSTEM_PROMPT }] },
-    contents: [{ role: "user", parts }],
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
-      temperature: 0.2,
-    },
-  };
+  return toBody({
+    system: image ? SYSTEM_PROMPT + IMAGE_RULES : SYSTEM_PROMPT,
+    parts,
+    schema: RESPONSE_SCHEMA,
+  });
 }
 
 function extractJson(text: string): unknown {
@@ -57,10 +74,13 @@ interface GeminiResponse {
   candidates?: { content?: { parts?: { text?: string }[] } }[];
 }
 
-/** 回傳 model 嘅 JSON（未驗證）。唔會 log 用戶輸入或相片。 */
-export async function callGemini(
+/**
+ * 送出已組好嘅 body，回傳 model 嘅 JSON（未驗證）。
+ * 唔會 log 用戶輸入或相片，只 log HTTP 狀態碼。
+ */
+export async function generateJson(
   cfg: GeminiConfig,
-  input: string | EstimateInput,
+  body: unknown,
   fetchImpl: typeof fetch = fetch,
 ): Promise<unknown> {
   const controller = new AbortController();
@@ -70,7 +90,7 @@ export async function callGemini(
     res = await fetchImpl(`${BASE}/${cfg.model}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey },
-      body: JSON.stringify(buildRequestBody(input)),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } catch {
@@ -101,4 +121,13 @@ export async function callGemini(
   const out = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
   if (!out) throw new AiError("parse", "AI 冇回傳內容");
   return extractJson(out);
+}
+
+/** 食物估算：回傳 model 嘅 JSON（未驗證） */
+export function callGemini(
+  cfg: GeminiConfig,
+  input: string | EstimateInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<unknown> {
+  return generateJson(cfg, buildRequestBody(input), fetchImpl);
 }

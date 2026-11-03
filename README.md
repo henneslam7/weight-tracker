@@ -29,13 +29,20 @@ Stack：Next.js 15（App Router）· React 19 · Tailwind v4 · TypeScript stric
 
 AI 全部喺 `lib/ai/`，換 model 或 provider 只改嗰度。Route：`/api/ai/food`（驗證 Bearer token、每日上限）、`/api/push/test`、`/api/cron/reminders`（CRON_SECRET）。
 
+## 運動記錄 + AI 食咩好
+
+1. Supabase SQL Editor 執行 `supabase/schema_exercise.sql`（未建表之前，app 其他功能照常，運動當 0）
+2. 「運動」tab：揀運動類型 + 時間，按 `(MET − 1) × 體重 × 小時` 估算淨消耗（`lib/exercise.ts`），或者自己輸入 kcal
+3. 運動消耗加返入當日 calories 上限（碳水目標 +kcal/4）：`lib/budget.ts`。比例 `EXERCISE_CREDIT_RATIO`（預設 1）、每日上限 `EXERCISE_CREDIT_CAP`（1000）都喺 `lib/exercise.ts`
+4. 「食物」tab →「AI 食咩好？」：`/api/ai/suggest` 由 server 讀你嘅 profile／體重／今日食物同運動，自己計剩餘 calories 同 macros，再叫 Gemini 建議煮食或外食。每個建議會被驗證唔超過剩餘同單餐上限；剩餘 < 150 kcal 或者已超標就唔 call AI，只回覆支持性訊息（唔建議斷食、補償式少食或額外運動）
+
 ## 指令
 
 | 指令 | 用途 |
 |---|---|
 | `npm run dev` | 開發 |
 | `npm run build` | Production build（含 type check） |
-| `npm test` | 全部測試（calc、reminders、ai；Node >= 22.6） |
+| `npm test` | 全部測試（calc、reminders、ai、install、exercise；Node >= 22.6） |
 
 ## 重要規則
 

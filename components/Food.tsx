@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Plan } from "@/lib/calc";
 import { FOOD_EMPTY } from "@/lib/copy";
+import { sumBurned } from "@/lib/exercise";
 import { addDays, formatShort, toDateStr } from "@/lib/date";
 import { defaultMealType, MEAL_LABEL, MEAL_TYPES, sumFood } from "@/lib/food";
 import { getSupabase } from "@/lib/supabase";
 import type { FoodLog, MealType } from "@/lib/types";
 import FoodAdd from "./FoodAdd";
 import IntakeProgress from "./IntakeProgress";
+import MealSuggest from "./MealSuggest";
 import { btnPrimary, card, DISCLAIMER, errorBox } from "./ui";
 
 interface Props {
@@ -23,6 +25,7 @@ export default function Food({ userId, plan, initialMeal, onChanged }: Props) {
   const today = toDateStr();
   const [date, setDate] = useState(today);
   const [logs, setLogs] = useState<FoodLog[]>([]);
+  const [burned, setBurned] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [meal, setMeal] = useState<MealType>(initialMeal ?? defaultMealType(new Date().getHours()));
@@ -30,13 +33,19 @@ export default function Food({ userId, plan, initialMeal, onChanged }: Props) {
 
   const load = useCallback(async () => {
     setError(null);
-    const { data, error } = await getSupabase()
-      .from("food_logs")
-      .select("id, logged_on, meal_type, name, quantity_text, calories, protein_g, carbs_g, fat_g, source")
-      .eq("logged_on", date)
-      .order("created_at", { ascending: true });
-    if (error) setError(error.message);
-    else setLogs((data ?? []) as FoodLog[]);
+    const supabase = getSupabase();
+    const [food, exercise] = await Promise.all([
+      supabase
+        .from("food_logs")
+        .select("id, logged_on, meal_type, name, quantity_text, calories, protein_g, carbs_g, fat_g, source")
+        .eq("logged_on", date)
+        .order("created_at", { ascending: true }),
+      supabase.from("exercise_logs").select("calories").eq("logged_on", date),
+    ]);
+    if (food.error) setError(food.error.message);
+    else setLogs((food.data ?? []) as FoodLog[]);
+    // 運動表未建立（未跑 schema_exercise.sql）就當冇運動，唔影響食物頁
+    setBurned(exercise.error ? 0 : sumBurned(exercise.data ?? []));
     setLoading(false);
   }, [date]);
 
@@ -89,13 +98,25 @@ export default function Food({ userId, plan, initialMeal, onChanged }: Props) {
 
       <section className={card}>
         {plan ? (
-          <IntakeProgress plan={plan} totals={totals} />
+          <IntakeProgress plan={plan} totals={totals} exerciseBurned={burned} />
         ) : (
           <p className="text-sm text-slate-500">
             已食 {totals.calories} kcal。記錄體重後會顯示每日目標進度。
           </p>
         )}
       </section>
+
+      {isToday && plan && (
+        <MealSuggest
+          userId={userId}
+          date={date}
+          defaultMeal={meal}
+          onAdded={() => {
+            void load();
+            onChanged();
+          }}
+        />
+      )}
 
       {error && <p className={errorBox}>{error}</p>}
 
