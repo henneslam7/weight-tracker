@@ -115,7 +115,7 @@ test("連續 3 日冇記錄 → 夜晚改發「好耐冇見」，唔責備", () 
   assert.equal(d.length, 1);
   assert.ok(d[0].body.includes("重新開始"));
 });
-test("提醒內容唔提 calories 赤字／唔責備", () => {
+test("提醒會提赤字，但唔責備、唔鼓勵食少啲", () => {
   const all = [
     { nowTime: "07:35", weightLoggedToday: false },
     { nowTime: "08:35" },
@@ -125,8 +125,9 @@ test("提醒內容唔提 calories 赤字／唔責備", () => {
     { nowTime: "21:05", weightLoggedToday: false, lastLogDate: null },
   ].flatMap((o) => decideReminders(base(o)));
   assert.ok(all.length >= 5);
+  assert.ok(all.filter((d) => d.body.includes("赤字")).length >= 4);
   for (const d of all) {
-    assert.ok(!/赤字|減少食|唔准食|肥/.test(d.body), d.body);
+    assert.ok(!/減少食|少食|唔准食|唔好食|肥|餓/.test(d.body), d.body);
     assert.ok(d.url.startsWith("/?tab="));
   }
 });

@@ -6,7 +6,7 @@
 //  - 智能：已經記咗就唔提醒
 //  - 靜音時段內唔發
 //  - 夜晚補記：未記體重，或者今日記錄少過 2 餐 → 提醒；連續 N 日冇任何記錄 → 改發「好耐冇見」
-//  - 提醒內容唔提 calories 赤字、唔責備
+//  - 提醒可以提 calories 赤字，但唔責備、唔鼓勵食少過目標
 
 import { APP_NAME, pick, REMINDERS } from "./copy.ts";
 import { diffDays } from "./date.ts";
