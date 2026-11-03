@@ -4,21 +4,26 @@ import type { Session } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AuthForm from "@/components/AuthForm";
 import Calculator from "@/components/Calculator";
+import Food from "@/components/Food";
 import ProfileForm from "@/components/ProfileForm";
+import Reminders from "@/components/Reminders";
 import Today from "@/components/Today";
 import Weight from "@/components/Weight";
 import { computePlan } from "@/lib/calc";
 import { LOADING_TEXT } from "@/lib/copy";
 import { toDateStr } from "@/lib/date";
+import { isMealType } from "@/lib/food";
 import { getSupabase } from "@/lib/supabase";
-import type { Profile, WeightLog } from "@/lib/types";
+import type { FoodLog, MealType, Profile, WeightLog } from "@/lib/types";
 
-type Tab = "today" | "weight" | "calc";
+type Tab = "today" | "food" | "weight" | "calc" | "reminders";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "today", label: "今日" },
+  { id: "food", label: "食物" },
   { id: "weight", label: "體重" },
   { id: "calc", label: "計算機" },
+  { id: "reminders", label: "提醒" },
 ];
 
 export default function Home() {
@@ -26,6 +31,8 @@ export default function Home() {
   const [authReady, setAuthReady] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [logs, setLogs] = useState<WeightLog[]>([]);
+  const [foodToday, setFoodToday] = useState<FoodLog[]>([]);
+  const [initialMeal, setInitialMeal] = useState<MealType | null>(null);
   const [dataReady, setDataReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("today");
@@ -51,24 +58,42 @@ export default function Home() {
     return () => data.subscription.unsubscribe();
   }, []);
 
+  // 通知深層連結：/?tab=food&meal=lunch
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("tab");
+    if (t === "today" || t === "food" || t === "weight" || t === "calc" || t === "reminders") {
+      setTab(t);
+    }
+    const m = params.get("meal");
+    if (isMealType(m)) setInitialMeal(m);
+  }, []);
+
   const userId = session?.user.id ?? null;
 
   const load = useCallback(async () => {
     if (!userId) return;
     setLoadError(null);
     const supabase = getSupabase();
-    const [p, w] = await Promise.all([
+    const [p, w, f] = await Promise.all([
       supabase.from("profiles").select("*").maybeSingle(),
       supabase
         .from("weight_logs")
         .select("id, logged_on, weight_kg")
         .order("logged_on", { ascending: true }),
+      supabase
+        .from("food_logs")
+        .select("id, logged_on, meal_type, name, quantity_text, calories, protein_g, carbs_g, fat_g, source")
+        .eq("logged_on", toDateStr())
+        .order("created_at", { ascending: true }),
     ]);
-    if (p.error || w.error) {
-      setLoadError((p.error ?? w.error)!.message);
+    const err = p.error ?? w.error ?? f.error;
+    if (err) {
+      setLoadError(err.message);
     } else {
       setProfile(p.data as Profile | null);
       setLogs((w.data ?? []) as WeightLog[]);
+      setFoodToday((f.data ?? []) as FoodLog[]);
     }
     setDataReady(true);
   }, [userId]);
@@ -80,6 +105,7 @@ export default function Home() {
     } else {
       setProfile(null);
       setLogs([]);
+      setFoodToday([]);
       setDataReady(false);
     }
   }, [userId, load]);
@@ -144,7 +170,17 @@ export default function Home() {
           plan={plan}
           planError={planError}
           logs={logs}
+          foodToday={foodToday}
           onGoWeight={() => setTab("weight")}
+          onGoFood={() => setTab("food")}
+        />
+      )}
+      {tab === "food" && (
+        <Food
+          userId={session.user.id}
+          plan={plan}
+          initialMeal={initialMeal}
+          onChanged={() => void load()}
         />
       )}
       {tab === "weight" && (
@@ -166,8 +202,10 @@ export default function Home() {
         />
       )}
 
+      {tab === "reminders" && <Reminders userId={session.user.id} />}
+
       <nav className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
-        <div className="mx-auto grid max-w-md grid-cols-3">
+        <div className="mx-auto grid max-w-md grid-cols-5">
           {TABS.map((t) => (
             <button
               key={t.id}

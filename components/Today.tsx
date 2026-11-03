@@ -10,7 +10,9 @@ import {
   WEIGHT_NOT_LOGGED,
 } from "@/lib/copy";
 import { formatShort, toDateStr } from "@/lib/date";
-import type { Profile, WeightLog } from "@/lib/types";
+import { sumFood } from "@/lib/food";
+import type { FoodLog, Profile, WeightLog } from "@/lib/types";
+import IntakeProgress from "./IntakeProgress";
 import { card, DISCLAIMER, infoBox } from "./ui";
 
 interface Props {
@@ -18,10 +20,20 @@ interface Props {
   plan: Plan | null;
   planError: string | null;
   logs: WeightLog[]; // 升序
+  foodToday: FoodLog[];
   onGoWeight: () => void;
+  onGoFood: () => void;
 }
 
-export default function Today({ profile, plan, planError, logs, onGoWeight }: Props) {
+export default function Today({
+  profile,
+  plan,
+  planError,
+  logs,
+  foodToday,
+  onGoWeight,
+  onGoFood,
+}: Props) {
   const now = new Date();
   const today = toDateStr(now);
   const latest = logs.length ? logs[logs.length - 1] : null;
@@ -49,35 +61,17 @@ export default function Today({ profile, plan, planError, logs, onGoWeight }: Pr
       )}
 
       <section className={card}>
-        <h2 className="mb-1 font-semibold">今日目標</h2>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-semibold">今日食物</h2>
+          <button className="text-sm text-emerald-600 underline" onClick={onGoFood}>
+            記錄食物
+          </button>
+        </div>
         {planError && <p className={infoBox}>{planError}</p>}
         {!planError && !plan && (
           <p className={infoBox}>記錄體重後，就會計出你嘅每日目標。</p>
         )}
-        {plan && (
-          <>
-            <div className="my-2 text-center">
-              <div className="text-4xl font-bold text-emerald-600">
-                {plan.targetCalories}
-              </div>
-              <div className="text-sm text-slate-500">kcal</div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center text-sm">
-              <div className="rounded-xl bg-slate-50 p-2">
-                <div className="font-semibold">{plan.macros.proteinG} g</div>
-                <div className="text-xs text-slate-500">蛋白質</div>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-2">
-                <div className="font-semibold">{plan.macros.carbsG} g</div>
-                <div className="text-xs text-slate-500">碳水</div>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-2">
-                <div className="font-semibold">{plan.macros.fatG} g</div>
-                <div className="text-xs text-slate-500">脂肪</div>
-              </div>
-            </div>
-          </>
-        )}
+        {plan && <IntakeProgress plan={plan} totals={sumFood(foodToday)} />}
       </section>
 
       <section className={card}>

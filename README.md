@@ -2,7 +2,9 @@
 
 個人 AI 健身 web app（單一用戶、mobile-first PWA）。所有提示、提醒、鼓勵文案都集中喺 `lib/copy.ts`，語氣係「同林峯一樣靚仔，仲要 fit 過佢」。
 
-**Phase 1（呢個 repo 而家）**：登入／註冊、onboarding、BMR／TDEE／calories／macros 計算機、體重記錄、7 日移動平均趨勢圖、PWA。
+**Phase 1**：登入／註冊、onboarding、BMR／TDEE／calories／macros 計算機、體重記錄、7 日移動平均趨勢圖、PWA。
+
+**Phase 2**：食物日記（手動／常食餐單／AI 文字記食物，Gemini structured output）、每日 calories／macros 進度、Web Push 提醒（體重、餐單、夜晚補記、好耐冇記；智能略過已記錄、靜音時段）。
 
 Stack：Next.js 15（App Router）· React 19 · Tailwind v4 · TypeScript strict · Supabase（Postgres + Auth + RLS）· Vercel。
 
@@ -15,13 +17,23 @@ Stack：Next.js 15（App Router）· React 19 · Tailwind v4 · TypeScript stric
 5. Vercel Import repo，加同樣兩個 env vars，部署
 6. iPhone Safari → 分享 → 加入主畫面
 
+## Phase 2 設定
+
+1. Supabase SQL Editor 執行 `supabase/schema_phase2.sql`
+2. Vercel 加環境變數（見 `.env.example`）：`GEMINI_API_KEY`、`GEMINI_MODEL`、`SUPABASE_SERVICE_ROLE_KEY`、`NEXT_PUBLIC_VAPID_PUBLIC_KEY`、`VAPID_PRIVATE_KEY`、`VAPID_SUBJECT`、`CRON_SECRET`，然後 Redeploy
+3. 用 `supabase/cron.sql` 範本喺 Supabase 建立每 5 分鐘一次嘅排程（Vercel Hobby cron 只可以每日一次，所以唔用）
+4. iPhone：Safari 加入主畫面 → 由主畫面開 → 「提醒」頁 → 開啟通知 → 發送測試通知
+5. 驗證 Gemini：`GEMINI_API_KEY=… GEMINI_MODEL=… node scripts/ai-smoke.ts "午餐食咗碗叉燒飯"`
+
+AI 全部喺 `lib/ai/`，換 model 或 provider 只改嗰度。Route：`/api/ai/food`（驗證 Bearer token、每日上限）、`/api/push/test`、`/api/cron/reminders`（CRON_SECRET）。
+
 ## 指令
 
 | 指令 | 用途 |
 |---|---|
 | `npm run dev` | 開發 |
 | `npm run build` | Production build（含 type check） |
-| `npm run test:calc` | 公式測試（Node >= 22.6） |
+| `npm test` | 全部測試（calc、reminders、ai；Node >= 22.6） |
 
 ## 重要規則
 

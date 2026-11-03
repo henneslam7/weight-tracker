@@ -4,7 +4,7 @@
 //  2. 減得太快（> 1 kg／週）會轉為認真提醒，唔再打氣。
 //  3. 安全限制、免責聲明用認真語氣，唔玩嘢（見 components/ui.ts DISCLAIMER）。
 
-import type { Goal } from "./types.ts";
+import type { Goal, MealType } from "./types.ts";
 
 export const APP_NAME = "Fit 過林峯";
 export const APP_SHORT_NAME = "Fit過林峯";
@@ -80,9 +80,21 @@ export function goalMessage(
   return `距離目標仲有 ${dist} kg，fit 過林峯指日可待`;
 }
 
-// ───────────── 提醒（Phase 2 會用）─────────────
+// ───────────── 食物 ─────────────
 
-export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+export const FOOD_EMPTY = "今日未記錄食物。記低第一餐，離 fit 過林峯又近一步。";
+
+/** 今日攝取 vs 目標。超標只講事實同鼓勵，唔責備、唔叫人少食。 */
+export function intakeMessage(eaten: number, target: number): string {
+  if (eaten <= 0) return "未記錄任何食物";
+  if (eaten <= target) return `仲有 ${Math.round(target - eaten)} kcal 可以食`;
+  return `今日多咗 ${Math.round(eaten - target)} kcal，唔緊要，聽日繼續記錄就得`;
+}
+
+export const AI_ESTIMATE_NOTE =
+  "AI 估算，份量同 calories 可能有出入。請逐項檢查，改啱先儲存。";
+
+// ───────────── 提醒 ─────────────
 
 export const REMINDERS = {
   weight: [

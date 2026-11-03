@@ -36,3 +36,26 @@ export function formatShort(s: string): string {
   const [, m, d] = s.split("-").map(Number);
   return `${m}月${d}日`;
 }
+
+export const HK_TZ = "Asia/Hong_Kong";
+
+/** 指定時區嘅「而家」：{ date: YYYY-MM-DD, time: HH:MM }（server 用，唔受 server 時區影響） */
+export function nowInZone(
+  timeZone: string = HK_TZ,
+  d: Date = new Date(),
+): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    time: `${get("hour")}:${get("minute")}`,
+  };
+}

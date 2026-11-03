@@ -22,3 +22,29 @@ export interface WeightLog {
   logged_on: string; // YYYY-MM-DD（本地日期）
   weight_kg: number;
 }
+
+export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+export type FoodSource = "manual" | "ai" | "saved";
+
+export interface FoodLog {
+  id: string;
+  logged_on: string; // YYYY-MM-DD（本地日期）
+  meal_type: MealType;
+  name: string;
+  quantity_text: string | null;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  source: FoodSource;
+}
+
+export interface SavedMeal {
+  id: string;
+  name: string;
+  quantity_text: string | null;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+}
