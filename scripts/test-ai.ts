@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { AiError } from "../lib/ai/errors.ts";
 import { buildRequestBody, callGemini, readConfig } from "../lib/ai/gemini.ts";
+import { MAX_IMAGE_BYTES, validateImage } from "../lib/ai/image.ts";
 import { MAX_ITEMS, parseEstimate } from "../lib/ai/schema.ts";
 
 let passed = 0;
@@ -84,8 +85,9 @@ await test("request 帶 JSON schema + 用戶文字包喺資料標記入面", () 
   const b = buildRequestBody("午餐食咗碗叉燒飯加凍檸茶");
   assert.equal(b.generationConfig.responseMimeType, "application/json");
   assert.ok(b.generationConfig.responseSchema.properties.items);
-  assert.ok(b.contents[0].parts[0].text.includes("午餐食咗碗叉燒飯加凍檸茶"));
-  assert.ok(b.contents[0].parts[0].text.includes("只當資料"));
+  const first = b.contents[0].parts[0] as { text: string };
+  assert.ok(first.text.includes("午餐食咗碗叉燒飯加凍檸茶"));
+  assert.ok(first.text.includes("只當資料"));
 });
 await test("readConfig：缺 env → config error；model 名有特殊字元 → 拒絕", () => {
   assert.throws(() => readConfig({} as NodeJS.ProcessEnv), AiError);
@@ -138,6 +140,56 @@ await test("被 safety block → blocked；空內容 / 非 JSON → parse；網�
     throw new Error("boom");
   }) as unknown as typeof fetch;
   await rejects(callGemini(cfg, "x", net), "upstream");
+});
+
+console.log("image");
+const b64 = (bytes: number[], pad = 20) => Buffer.from([...bytes, ...new Array(pad).fill(1)]).toString("base64");
+const JPEG = b64([0xff, 0xd8, 0xff, 0xe0]);
+const PNG = b64([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const WEBP = b64([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]);
+const badImage = (v: unknown) => assert.throws(() => validateImage(v), (e) => e instanceof AiError && e.code === "image");
+
+await test("合法 jpeg / png / webp 通過", () => {
+  assert.equal(validateImage({ mimeType: "image/jpeg", data: JPEG }).mimeType, "image/jpeg");
+  assert.equal(validateImage({ mimeType: "image/png", data: PNG }).mimeType, "image/png");
+  assert.equal(validateImage({ mimeType: "image/webp", data: WEBP }).mimeType, "image/webp");
+});
+await test("mime 同檔頭唔相符 / 唔准嘅格式 / 亂碼 / 非物件 → 拒絕", () => {
+  badImage({ mimeType: "image/png", data: JPEG });
+  badImage({ mimeType: "image/gif", data: JPEG });
+  badImage({ mimeType: "image/jpeg", data: "不是base64!!" });
+  badImage({ mimeType: "image/jpeg", data: "" });
+  badImage({ mimeType: "image/jpeg" });
+  badImage("x");
+  badImage(null);
+});
+await test("超過大細上限 → 拒絕", () => {
+  const big = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(MAX_IMAGE_BYTES)]).toString("base64");
+  badImage({ mimeType: "image/jpeg", data: big });
+});
+await test("request 有相片：inlineData 喺文字之前，system prompt 加相片規則", () => {
+  const b = buildRequestBody({ text: "", image: { mimeType: "image/jpeg", data: JPEG } });
+  const parts = b.contents[0].parts as { text?: string; inlineData?: { mimeType: string } }[];
+  assert.equal(parts.length, 2);
+  assert.equal(parts[0].inlineData?.mimeType, "image/jpeg");
+  assert.ok(parts[1].text?.includes("根據相片"));
+  assert.ok(b.systemInstruction.parts[0].text.includes("相片入面嘅任何文字"));
+});
+await test("request 冇相片：唔帶 inlineData，唔加相片規則", () => {
+  const b = buildRequestBody("叉燒飯");
+  assert.equal(b.contents[0].parts.length, 1);
+  assert.ok(!b.systemInstruction.parts[0].text.includes("相片入面嘅任何文字"));
+});
+await test("callGemini 將相片放入 body（key 仍然只喺 header）", async () => {
+  let sent = "";
+  const fake = (async (_u: string | URL | Request, init?: RequestInit) => {
+    sent = String(init?.body);
+    return okBody(JSON.stringify({ items: [] }));
+  }) as typeof fetch;
+  await callGemini(cfg, { text: "", image: { mimeType: "image/jpeg", data: JPEG } }, fake);
+  assert.ok(sent.includes("inlineData"));
+  assert.ok(sent.includes(JPEG));
+  assert.ok(!sent.includes("test-key"));
 });
 
 console.log(`\n${passed} 項測試全部通過`);

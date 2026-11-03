@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authedFetch } from "@/lib/api";
-import { AI_ESTIMATE_NOTE } from "@/lib/copy";
+import { AI_ESTIMATE_NOTE, PHOTO_NOTE } from "@/lib/copy";
+import { prepareImage, type PreparedImage } from "@/lib/image-client";
 import { MEAL_LABEL, MEAL_TYPES } from "@/lib/food";
 import { getSupabase } from "@/lib/supabase";
 import type { MealType, SavedMeal } from "@/lib/types";
@@ -89,6 +90,43 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saved, setSaved] = useState<SavedMeal[]>([]);
+  const [image, setImage] = useState<PreparedImage | null>(null);
+  const [imgBusy, setImgBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const imageRef = useRef<PreparedImage | null>(null);
+  imageRef.current = image;
+
+  // 離開頁面時釋放預覽 URL
+  useEffect(() => {
+    return () => {
+      if (imageRef.current) URL.revokeObjectURL(imageRef.current.previewUrl);
+    };
+  }, []);
+
+  function clearImage() {
+    setImage((prev) => {
+      if (prev) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  }
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 容許再揀同一張
+    if (!file) return;
+    setError(null);
+    setNotice(null);
+    setImgBusy(true);
+    try {
+      const prepared = await prepareImage(file);
+      clearImage();
+      setImage(prepared);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "處理相片失敗");
+    } finally {
+      setImgBusy(false);
+    }
+  }
 
   async function loadSaved() {
     const { data } = await getSupabase()
@@ -106,21 +144,26 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
     setMode(m);
     setError(null);
     setNotice(null);
+    clearImage();
     setDrafts(m === "manual" ? [emptyDraft()] : []);
   }
 
   async function estimate() {
     setError(null);
     setNotice(null);
-    if (!text.trim()) {
-      setError("請輸入你食咗啲咩。");
+    if (!text.trim() && !image) {
+      setError("請輸入你食咗啲咩，或者影／揀一張相。");
       return;
     }
+    const fromPhoto = image !== null;
     setBusy(true);
     try {
       const res = await authedFetch("/api/ai/food", {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          image: image ? { mimeType: image.mimeType, data: image.data } : undefined,
+        }),
       });
       const body = (await res.json().catch(() => ({}))) as {
         items?: AiItem[];
@@ -135,6 +178,7 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
         setNotice("AI 認唔到食物，請寫詳細啲，或者改用手動輸入。");
         return;
       }
+      clearImage();
       setDrafts(
         items.map((i) => ({
           key: crypto.randomUUID(),
@@ -145,7 +189,7 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
           carbs_g: String(i.carbs_g),
           fat_g: String(i.fat_g),
           save: false,
-          raw: i,
+          raw: { ...i, input: fromPhoto ? "photo" : "text" },
         })),
       );
     } catch {
@@ -266,7 +310,9 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
 
       {mode === "ai" && drafts.length === 0 && (
         <div className="space-y-2">
-          <label className={label} htmlFor="ai-text">用廣東話講你食咗啲咩</label>
+          <label className={label} htmlFor="ai-text">
+            {image ? "補充說明（可選，例如份量、幾多人分）" : "用廣東話講你食咗啲咩，或者影相"}
+          </label>
           <textarea
             id="ai-text"
             rows={3}
@@ -276,10 +322,40 @@ export default function FoodAdd({ userId, date, meal, onMealChange, onAdded }: P
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-          <button className={btnPrimary} disabled={busy} onClick={() => void estimate()}>
-            {busy ? "AI 估算緊…" : "AI 估算"}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => void onPick(e)}
+          />
+          {image ? (
+            <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={image.previewUrl}
+                alt="食物相片預覽"
+                className="h-20 w-20 rounded-lg object-cover"
+              />
+              <button className="text-sm text-slate-500 underline" onClick={clearImage}>
+                移除相片
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className={btnGhost}
+              disabled={imgBusy || busy}
+              onClick={() => fileRef.current?.click()}
+            >
+              {imgBusy ? "處理相片中…" : "📷 影相／揀相"}
+            </button>
+          )}
+          <button className={btnPrimary} disabled={busy || imgBusy} onClick={() => void estimate()}>
+            {busy ? "AI 估算緊…" : image ? "AI 估算相片" : "AI 估算"}
           </button>
           <p className="text-xs text-slate-400">{AI_ESTIMATE_NOTE}</p>
+          {image && <p className="text-xs text-slate-400">{PHOTO_NOTE}</p>}
         </div>
       )}
 

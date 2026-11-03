@@ -94,6 +94,9 @@ export function intakeMessage(eaten: number, target: number): string {
 export const AI_ESTIMATE_NOTE =
   "AI 估算，份量同 calories 可能有出入。請逐項檢查，改啱先儲存。";
 
+export const PHOTO_NOTE =
+  "相片只會傳送畀 Google Gemini 估算，唔會儲存喺你嘅 app 或 database。相片估份量誤差會較大，請逐項檢查。";
+
 // ───────────── 提醒 ─────────────
 
 export const REMINDERS = {

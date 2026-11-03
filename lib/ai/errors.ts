@@ -1,4 +1,4 @@
-export type AiErrorCode = "config" | "rate" | "blocked" | "upstream" | "parse";
+export type AiErrorCode = "config" | "rate" | "blocked" | "upstream" | "parse" | "image";
 
 export class AiError extends Error {
   readonly code: AiErrorCode;

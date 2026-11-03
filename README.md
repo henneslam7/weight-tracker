@@ -4,7 +4,7 @@
 
 **Phase 1**：登入／註冊、onboarding、BMR／TDEE／calories／macros 計算機、體重記錄、7 日移動平均趨勢圖、PWA。
 
-**Phase 2**：食物日記（手動／常食餐單／AI 文字記食物，Gemini structured output）、每日 calories／macros 進度、Web Push 提醒（體重、餐單、夜晚補記、好耐冇記；智能略過已記錄、靜音時段）。
+**Phase 2**：食物日記（手動／常食餐單／AI 文字／相片記食物，Gemini structured output）、每日 calories／macros 進度、Web Push 提醒（體重、餐單、夜晚補記、好耐冇記；智能略過已記錄、靜音時段）。
 
 Stack：Next.js 15（App Router）· React 19 · Tailwind v4 · TypeScript strict · Supabase（Postgres + Auth + RLS）· Vercel。
 
@@ -24,6 +24,8 @@ Stack：Next.js 15（App Router）· React 19 · Tailwind v4 · TypeScript stric
 3. 用 `supabase/cron.sql` 範本喺 Supabase 建立每 5 分鐘一次嘅排程（Vercel Hobby cron 只可以每日一次，所以唔用）
 4. iPhone：Safari 加入主畫面 → 由主畫面開 → 「提醒」頁 → 開啟通知 → 發送測試通知
 5. 驗證 Gemini：`GEMINI_API_KEY=… GEMINI_MODEL=… node scripts/ai-smoke.ts "午餐食咗碗叉燒飯"`
+
+相片喺 browser 先壓縮（最長 1280px、JPEG），server 驗證格式同檔頭，用 Gemini inline image 估算，**唔會儲存相片**。
 
 AI 全部喺 `lib/ai/`，換 model 或 provider 只改嗰度。Route：`/api/ai/food`（驗證 Bearer token、每日上限）、`/api/push/test`、`/api/cron/reminders`（CRON_SECRET）。
 

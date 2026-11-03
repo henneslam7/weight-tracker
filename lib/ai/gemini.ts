@@ -2,7 +2,8 @@
 // 喺 server 用。GEMINI_API_KEY 永遠唔可以有 NEXT_PUBLIC_ 前綴。
 
 import { AiError } from "./errors.ts";
-import { SYSTEM_PROMPT, wrapUserText } from "./prompt.ts";
+import type { EstimateInput } from "./image.ts";
+import { DEFAULT_IMAGE_TEXT, IMAGE_RULES, SYSTEM_PROMPT, wrapUserText } from "./prompt.ts";
 import { RESPONSE_SCHEMA } from "./schema.ts";
 
 export interface GeminiConfig {
@@ -21,10 +22,16 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): GeminiConfig {
   return { apiKey, model };
 }
 
-export function buildRequestBody(text: string) {
+type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
+
+export function buildRequestBody(input: string | EstimateInput) {
+  const { text, image } = typeof input === "string" ? { text: input, image: undefined } : input;
+  const parts: Part[] = [];
+  if (image) parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+  parts.push({ text: wrapUserText(text.trim() || (image ? DEFAULT_IMAGE_TEXT : "")) });
   return {
-    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-    contents: [{ role: "user", parts: [{ text: wrapUserText(text) }] }],
+    systemInstruction: { parts: [{ text: image ? SYSTEM_PROMPT + IMAGE_RULES : SYSTEM_PROMPT }] },
+    contents: [{ role: "user", parts }],
     generationConfig: {
       responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
@@ -50,10 +57,10 @@ interface GeminiResponse {
   candidates?: { content?: { parts?: { text?: string }[] } }[];
 }
 
-/** 回傳 model 嘅 JSON（未驗證）。唔會 log 用戶輸入。 */
+/** 回傳 model 嘅 JSON（未驗證）。唔會 log 用戶輸入或相片。 */
 export async function callGemini(
   cfg: GeminiConfig,
-  text: string,
+  input: string | EstimateInput,
   fetchImpl: typeof fetch = fetch,
 ): Promise<unknown> {
   const controller = new AbortController();
@@ -63,7 +70,7 @@ export async function callGemini(
     res = await fetchImpl(`${BASE}/${cfg.model}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey },
-      body: JSON.stringify(buildRequestBody(text)),
+      body: JSON.stringify(buildRequestBody(input)),
       signal: controller.signal,
     });
   } catch {
