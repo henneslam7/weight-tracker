@@ -240,6 +240,10 @@ export function trendMessage(goal: Goal, trend: number | null): string {
     if (trend < 0.1) return "體重企穩，繼續保持習慣就得，唔使心急。";
     return "今個星期上咗少少，唔緊要，繼續記錄，唔好放棄。";
   }
+  if (goal === "recomp") {
+    if (Math.abs(trend) <= 0.3) return "體重企穩，正常！體態重組要睇腰圍同相，唔好淨係睇磅。";
+    return "體重郁得多少少，體態重組要慢慢嚟，留意飲食同重訓就得。";
+  }
   if (goal === "gain") {
     if (trend >= 0.1) return "肌肉儲緊，趨勢正確！";
     return "增肌要耐性：食夠、練夠、瞓夠。";
@@ -250,7 +254,7 @@ export function trendMessage(goal: Goal, trend: number | null): string {
 
 /** 距離目標 */
 export function goalMessage(goal: Goal, weightKg: number, targetKg: number | null): string | null {
-  if (targetKg === null || goal === "maintain") return null;
+  if (targetKg === null || goal === "maintain" || goal === "recomp") return null;
   const reached = goal === "lose" ? weightKg <= targetKg : weightKg >= targetKg;
   if (reached) return "目標達成！陳伯我就話你得㗎。";
   const dist = Math.round(Math.abs(weightKg - targetKg) * 10) / 10;

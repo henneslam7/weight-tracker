@@ -5,7 +5,8 @@ export type ActivityLevel =
   | "moderate"
   | "active"
   | "very_active";
-export type Goal = "lose" | "maintain" | "gain";
+/** recomp = 體態重組（減脂＋增肌）：接近維持量、輕微赤字、高蛋白、要重訓 */
+export type Goal = "lose" | "maintain" | "gain" | "recomp";
 
 export type StepsRange = "lt3000" | "3000_4999" | "5000_6999" | "7000_9999" | "gte10000" | "unknown";
 export type WorkActivity = "mostly_sitting" | "mixed" | "standing_walking" | "manual_labor" | "unknown";

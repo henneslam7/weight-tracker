@@ -49,6 +49,10 @@ export function explainPlan(plan: Plan, profile: Profile): string[] {
 
   if (plan.status === "requires_review") {
     out.push("需要先經專業人士評估，所以唔設赤字，目標熱量 = 維持量。");
+  } else if (profile.goal === "recomp") {
+    out.push(
+      `體態重組：每日少食約 ${-plan.dailyDeltaKcal} kcal（約 ${Math.round(plan.deficitRatio * 1000) / 10}%，輕微赤字），加高蛋白同重量訓練，目標係脂肪減、肌肉增，體重大致不變。`,
+    );
   } else if (plan.dailyDeltaKcal < 0) {
     out.push(
       `${plan.pace ? `「${PACE_LABEL[plan.pace]}」` : ""}每日少食約 ${-plan.dailyDeltaKcal} kcal（約 ${Math.round(plan.deficitRatio * 1000) / 10}% 赤字）→ ${weeklyText(plan.weeklyRateKg)}。`,

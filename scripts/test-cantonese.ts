@@ -27,7 +27,7 @@ const all: string[] = [
   ...[...GENERIC.neighbour, ...GENERIC.spicy].map((l) => l.text),
   TAGLINE, LOADING_TEXT, WEIGHT_NOT_LOGGED.title, WEIGHT_NOT_LOGGED.sub, WEIGHT_EMPTY, WEIGHT_NEED_MORE,
   FOOD_EMPTY, AI_ESTIMATE_NOTE, PHOTO_NOTE,
-  ...[-1.5, -0.5, 0, 0.5].flatMap((t) => (["lose", "gain", "maintain"] as const).map((g) => trendMessage(g, t))),
+  ...[-1.5, -0.5, 0, 0.5].flatMap((t) => (["lose", "gain", "maintain", "recomp"] as const).map((g) => trendMessage(g, t))),
   trendMessage("lose", null), goalMessage("lose", 70, 70) ?? "", goalMessage("lose", 75, 70) ?? "",
   intakeMessage(0, 2000), intakeMessage(800, 2000), intakeMessage(2300, 2000),
   ...["a", "b", "c", "d"].map((s) => savedMessage(s)),

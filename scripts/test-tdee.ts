@@ -227,7 +227,7 @@ test("B09b 任何輸入（fuzz）：目標 ≥ 下限（或 TDEE）、赤字 ≤
       birth_date: `${year}-0${1 + Math.floor(rnd() * 9)}-15`,
       height_cm: 140 + Math.floor(rnd() * 60),
       activity_level: pick([null, "sedentary", "light", "moderate", "active", "very_active"] as const),
-      goal: pick(["lose", "maintain", "gain"] as const),
+      goal: pick(["lose", "maintain", "gain", "recomp"] as const),
       target_weight_kg: w - 5,
       weekly_rate_kg: pick([null, 0.25, 0.5, 0.75, 1, 2] as const),
       steps_range: pick(["lt3000", "3000_4999", "5000_6999", "7000_9999", "gte10000", "unknown", null] as const),
@@ -248,6 +248,11 @@ test("B09b 任何輸入（fuzz）：目標 ≥ 下限（或 TDEE）、赤字 ≤
     if (p.goal === "lose") {
       const cap = x.senior ? 0.15 : MAX_DEFICIT_RATIO;
       assert.ok(x.deficitRatio <= cap + 0.002, `ratio ${x.deficitRatio} cap ${cap} ${JSON.stringify(p)}`);
+      if (x.status === "requires_review") assert.equal(x.dailyDeltaKcal, 0);
+    }
+    if (p.goal === "recomp") {
+      assert.ok(x.deficitRatio <= 0.051, `recomp ratio ${x.deficitRatio}`);
+      assert.ok(x.dailyDeltaKcal <= 0);
       if (x.status === "requires_review") assert.equal(x.dailyDeltaKcal, 0);
     }
     const e = Math.abs(macroKcal(x.macros.proteinG, x.macros.carbsG, x.macros.fatG) - x.targetCalories);
@@ -412,6 +417,44 @@ test("取整：目標熱量以 5/10/50 取整，宏量仍 ≤ 10 kcal", () => {
     const m = allocateMacros({ targetKcal: t, basisWeightKg: W, proteinPerKg: 1.6, minProteinPerKg: 1.2, fatRatio: 0.25 });
     assert.ok(Math.abs(m.kcal - t) <= MACRO_TOLERANCE_KCAL);
   }
+});
+
+console.log("體態重組（減脂＋增肌）");
+const recomp = (p: Partial<Profile> = {}, w = W) =>
+  plan({ goal: "recomp", target_weight_kg: null, weekly_rate_kg: null, pace: null, exercise_type: "resistance", exercise_sessions_per_week: 3, exercise_minutes: 60, exercise_intensity: "moderate", ...p }, w);
+test("目標熱量 ≈ TDEE 嘅 95%（輕微赤字），蛋白質 1.6 g/kg，宏量一致", () => {
+  const p = recomp({}, 80);
+  near(p.deficitRatio, 0.05, 0.002);
+  assert.equal(p.status, "ok");
+  assert.equal(p.proteinPerKg >= 1.55 && p.proteinPerKg <= 1.62, true);
+  assert.ok(Math.abs(macroKcal(p.macros.proteinG, p.macros.carbsG, p.macros.fatG) - p.targetCalories) <= MACRO_TOLERANCE_KCAL);
+  assert.equal(p.pace, null);
+});
+test("有重訓（≥2 次）→ 冇提醒；冇重訓 → 有明確提醒但照樣計", () => {
+  assert.ok(!recomp({}, 80).warnings.some((w) => w.includes("重量訓練")));
+  const none = recomp({ exercise_type: "none", exercise_sessions_per_week: 0 }, 80);
+  assert.ok(none.warnings.some((w) => w.includes("重量訓練")));
+  assert.ok(none.targetCalories < none.tdee);
+  const once = recomp({ exercise_sessions_per_week: 1 }, 80);
+  assert.ok(once.warnings.some((w) => w.includes("重量訓練")));
+  const cardio = recomp({ exercise_type: "cardio" }, 80);
+  assert.ok(cardio.warnings.some((w) => w.includes("重量訓練")));
+});
+test("篩查要評估／現時 BMI < 18.5 → 唔出赤字；65+ 蛋白質 1.2", () => {
+  const r = recomp({ risk_review: "needs_review" }, 80);
+  assert.equal(r.status, "requires_review");
+  assert.equal(r.dailyDeltaKcal, 0);
+  assert.equal(recomp({}, 50).status, "requires_review");
+  const s = recomp({ birth_date: "1955-01-01" }, 80);
+  assert.ok(s.proteinPerKg <= 1.25);
+});
+test("calories 下限仍然生效；唔需要目標體重；解釋同提示用語", () => {
+  const f = recomp({ sex: "female", height_cm: 150 }, 45);
+  assert.ok(f.targetCalories >= Math.min(1200, f.tdee));
+  assert.equal(validateProfile({ profile: { ...base, goal: "recomp", target_weight_kg: null, pace: null }, currentWeightKg: 80, today: TODAY }), null);
+  const prof = { ...base, goal: "recomp" as const, target_weight_kg: null, pace: null, exercise_type: "resistance" as const, exercise_sessions_per_week: 3, exercise_minutes: 60 };
+  assert.ok(explainPlan(recomp({}, 80), prof).some((l) => l.includes("體態重組")));
+  assert.equal(previewPaces({ profile: prof, weightKg: 80, today: TODAY }), null);
 });
 
 console.log(`\n${passed} 項測試全部通過`);

@@ -22,7 +22,7 @@ interface Props {
   onChanged: () => void;
 }
 
-const GOAL_TEXT = { lose: "減脂", maintain: "維持體重", gain: "增肌" } as const;
+const GOAL_TEXT = { lose: "減脂", maintain: "維持體重", gain: "增肌", recomp: "減脂＋增肌" } as const;
 const STATUS_TEXT: Record<Plan["status"], string | null> = {
   ok: null,
   capped: "已按安全限制調整",
@@ -164,7 +164,7 @@ export default function Calculator({
                 k={plan.dailyDeltaKcal <= 0 ? "每日赤字" : "每日盈餘"}
                 v={`${Math.abs(plan.dailyDeltaKcal)} kcal${plan.deficitRatio > 0 ? `（約 ${Math.round(plan.deficitRatio * 1000) / 10}%）` : ""}`}
               />
-              {profile.goal !== "maintain" && plan.dailyDeltaKcal !== 0 && (
+              {(profile.goal === "lose" || profile.goal === "gain") && plan.dailyDeltaKcal !== 0 && (
                 <Row k="預計每週變化" v={weeklyText(plan.weeklyRateKg)} />
               )}
             </div>

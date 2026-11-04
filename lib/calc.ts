@@ -46,7 +46,12 @@ export const PROTEIN_RANGE: Record<Goal, { def: number; min: number }> = {
   lose: { def: 1.6, min: 1.2 },
   maintain: { def: 1.4, min: 1.2 },
   gain: { def: 1.6, min: 1.2 },
+  recomp: { def: 1.6, min: 1.2 },
 };
+/** 體態重組：輕微赤字（TDEE 嘅 5%），產品假設，待營養專業審核 */
+export const RECOMP_RATIO = 0.05;
+/** 體態重組最少每週重訓次數（只作提醒，唔擋） */
+export const RECOMP_MIN_SESSIONS = 2;
 export const FAT_CALORIE_RATIO = 0.25;
 /** 目標體重嘅 BMI 下限（減脂時用嚟擋極端目標） */
 export const MIN_TARGET_BMI = 18.5;
@@ -101,7 +106,7 @@ export function calcBmi(weightKg: number, heightCm: number): number {
 }
 
 export function clampRate(goal: Goal, rate: number | null, age?: number): number {
-  if (goal === "maintain") return 0;
+  if (goal === "maintain" || goal === "recomp") return 0;
   const { min, max: baseMax } = RATE_LIMITS[goal];
   // 65 歲或以上，每週速度上限壓低（最少都係 min）
   const max = age !== undefined && isSenior(age) ? Math.max(min, Math.min(baseMax, SENIOR.rateMax)) : baseMax;
@@ -353,6 +358,34 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
         warnings.push(`每日 calories 唔可以低過 ${floorRaw} kcal，已按下限調整（所以赤字細過你揀嘅檔位）。`);
       }
     }
+  } else if (profile.goal === "recomp") {
+    if (review === "needs_review" || bmi < MIN_CURRENT_BMI_TO_LOSE) {
+      status = "requires_review";
+      target = tdee;
+      warnings.push(
+        review === "needs_review"
+          ? "你嘅安全篩查結果顯示應該先同醫生或註冊營養師傾，所以呢度唔提供赤字，只顯示維持體重嘅熱量。"
+          : `你現時 BMI 低過 ${MIN_CURRENT_BMI_TO_LOSE}，唔建議再減脂，只顯示維持體重嘅熱量。`,
+      );
+    } else {
+      target = tdee * (1 - RECOMP_RATIO);
+      const floor = Math.min(MIN_CALORIES[profile.sex], tdee);
+      if (target < floor) {
+        target = floor;
+        status = "capped";
+        warnings.push(`每日 calories 唔可以低過 ${MIN_CALORIES[profile.sex]} kcal，已按下限調整。`);
+      }
+    }
+    const trains =
+      (profile.exercise_type === "resistance" || profile.exercise_type === "mixed") &&
+      (profile.exercise_sessions_per_week ?? 0) >= RECOMP_MIN_SESSIONS &&
+      (profile.exercise_minutes ?? 0) > 0;
+    if (!trains) {
+      warnings.push(
+        `體態重組要配合重量訓練（每週最少 ${RECOMP_MIN_SESSIONS} 次）。你而家冇填呢個，效果會有限；如果唔打算重訓，建議揀「減脂」或「維持體重」。`,
+      );
+    }
+    notes.push("體態重組：體重大致不變係正常，主要睇腰圍、相同力量有冇進步，唔好淨係睇磅。");
   } else if (profile.goal === "gain") {
     const rate = clampRate("gain", profile.weekly_rate_kg);
     if (profile.weekly_rate_kg !== null && rate !== profile.weekly_rate_kg) {
@@ -361,7 +394,7 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
     target = tdee + (rate * KCAL_PER_KG) / 7;
   }
 
-  if (review === "needs_review" && profile.goal !== "lose") {
+  if (review === "needs_review" && (profile.goal === "maintain" || profile.goal === "gain")) {
     warnings.push("你嘅安全篩查結果顯示應該先同醫生或註冊營養師傾，呢個計劃只供參考。");
   }
 
@@ -372,7 +405,7 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
   const rangeA = weeklyKg(targetCalories - Math.round(tdeeHigh));
   const rangeB = weeklyKg(targetCalories - Math.round(tdeeLow));
   const weeklyRateRangeKg: [number, number] = [Math.min(rangeA, rangeB), Math.max(rangeA, rangeB)];
-  const deficitRatio = profile.goal === "lose" && dailyDeltaKcal < 0 ? Math.round((-dailyDeltaKcal / tdeeR) * 1000) / 1000 : 0;
+  const deficitRatio = (profile.goal === "lose" || profile.goal === "recomp") && dailyDeltaKcal < 0 ? Math.round((-dailyDeltaKcal / tdeeR) * 1000) / 1000 : 0;
 
   // 蛋白質：記錄用咗邊個體重做基準
   const useTarget =
@@ -509,7 +542,7 @@ export function validateProfile({
       return `自訂熱量唔可以低過 ${MIN_CALORIES[profile.sex]} kcal（安全下限）。`;
     }
   }
-  if (profile.goal === "maintain") return null;
+  if (profile.goal === "maintain" || profile.goal === "recomp") return null;
 
   const t = profile.target_weight_kg;
   if (t === null || !(t >= 30 && t <= 300)) return "請輸入目標體重（30–300 公斤）。";

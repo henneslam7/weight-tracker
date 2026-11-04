@@ -56,6 +56,7 @@ const ANSWER_TEXT: Record<Answer, string> = { no: "冇", yes: "有", prefer_not:
 
 const GOAL_OPTIONS: { value: Goal; text: string }[] = [
   { value: "lose", text: "減脂" },
+  { value: "recomp", text: "減脂＋增肌" },
   { value: "maintain", text: "維持體重" },
   { value: "gain", text: "增肌" },
 ];
@@ -147,8 +148,8 @@ export default function ProfileForm({
       height_cm: Number(height),
       activity_level: legacyLevelFromSteps(stepsRange),
       goal,
-      target_weight_kg: goal === "maintain" ? null : Number(target),
-      weekly_rate_kg: goal === "maintain" ? null : goal === "lose" ? rateFromPace(pace) : Number(effectiveRate),
+      target_weight_kg: goal === "lose" || goal === "gain" ? Number(target) : null,
+      weekly_rate_kg: goal === "lose" ? rateFromPace(pace) : goal === "gain" ? Number(effectiveRate) : null,
       steps_range: stepsRange,
       mean_steps_28d: steps !== null && steps > 0 ? steps : null,
       step_source: steps !== null && steps > 0 ? stepSource : null,
@@ -229,7 +230,12 @@ export default function ProfileForm({
       }
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "儲存失敗，請再試。");
+      const e = err as { code?: string; message?: string } | null;
+      if (e?.code === "23514" && goal === "recomp") {
+        setError("資料庫未支援「減脂＋增肌」。請喺 Supabase SQL Editor 執行 supabase/schema_recomp.sql 一次，再儲存。");
+      } else {
+        setError(e?.message ? e.message : "儲存失敗，請再試。");
+      }
     } finally {
       setBusy(false);
     }
@@ -400,7 +406,7 @@ export default function ProfileForm({
 
         <div>
           <span className={label}>目標</span>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {GOAL_OPTIONS.map((o) => (
               <button
                 key={o.value}
@@ -418,7 +424,7 @@ export default function ProfileForm({
           </div>
         </div>
 
-        {goal !== "maintain" && (
+        {(goal === "lose" || goal === "gain") && (
           <div>
             <label className={label} htmlFor="target">目標體重（公斤）</label>
             <input
@@ -431,6 +437,21 @@ export default function ProfileForm({
               value={target}
               onChange={(e) => setTarget(e.target.value)}
             />
+          </div>
+        )}
+
+        {goal === "recomp" && (
+          <div className="space-y-2 rounded-xl bg-teal-50 p-3 text-sm text-teal-900">
+            <p className="font-bold">減脂＋增肌（體態重組）</p>
+            <p>
+              每日只輕微少食約 5%，配合高蛋白同重量訓練。體重通常變化好細，主要睇腰圍、相同力量有冇進步。
+              新手、少運動一段時間再返嚟、或者有啲脂肪嘅人，效果最明顯。
+            </p>
+            {!(exType === "resistance" || exType === "mixed") && (
+              <p className="font-semibold text-amber-800">
+                你上面「固定運動」未揀重量訓練。冇重訓嘅話，效果會有限，建議揀「減脂」或「維持體重」。
+              </p>
+            )}
           </div>
         )}
 
