@@ -40,6 +40,9 @@ async function run(req: Request) {
     admin.from("profiles").select("user_id, birth_date"),
   ]);
   if (subsAll.error || settingsAll.error) return json({ error: "server" }, 500);
+  // 放縱日：兩個街坊好好人，提醒都用溫柔語氣（表未建立就當冇）
+  const cheatAll = await admin.from("cheat_days").select("user_id").eq("cheat_on", date);
+  const cheatUsers = new Set((cheatAll.error ? [] : cheatAll.data ?? []).map((r) => r.user_id as string));
   const prefsByUser = new Map((prefsAll.error ? [] : prefsAll.data ?? []).map((r) => [r.user_id as string, r]));
   const birthByUser = new Map((profilesAll.error ? [] : profilesAll.data ?? []).map((r) => [r.user_id as string, r.birth_date as string]));
 
@@ -92,7 +95,7 @@ async function run(req: Request) {
     const birth = birthByUser.get(userId);
     const age = birth ? ageOn(birth, date) : null;
     const prefs = normalizePrefs(prefsByUser.get(userId) ?? null, age);
-    const tone = age !== null && age >= 65 ? "soft" : prefs.tone;
+    const tone = (age !== null && age >= 65) || cheatUsers.has(userId) ? "soft" : prefs.tone;
 
     const due = decideReminders({
       tone,

@@ -32,6 +32,10 @@ export interface History {
   mealsByDate: ReadonlyMap<string, ReadonlySet<MealType>>;
   /** 有運動記錄（包括休息日）嘅日子 */
   moveDates: ReadonlySet<string>;
+  /** 每日已食 kcal（印花要「食量唔超上限」）。冇提供 = 唔知，當唔合資格 */
+  kcalByDate?: ReadonlyMap<string, number>;
+  /** 每日運動淨消耗 kcal（加返入當日上限） */
+  burnedByDate?: ReadonlyMap<string, number>;
 }
 
 export function dayLogFor(h: History, date: string): DayLog {

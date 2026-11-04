@@ -139,6 +139,9 @@ export interface Macros {
 export type PlanStatus = "ok" | "capped" | "blocked" | "requires_review";
 
 export interface Plan {
+  goal: Goal;
+  /** 放縱日加咗幾多 kcal（只喺放縱日由 applyCheat 設定） */
+  cheatExtraKcal?: number;
   age: number;
   bmr: number;
   /** 每日總消耗（取整後嘅中位估算） */
@@ -425,6 +428,7 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
   return {
     ok: true,
     plan: {
+      goal: profile.goal,
       age,
       senior,
       bmr: Math.round(bmr),

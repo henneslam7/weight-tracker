@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { FORMULA_VERSION, PACE_LABEL, previewPaces, type Plan } from "@/lib/calc";
 import { confidenceText, explainPlan, missingText, weeklyText } from "@/lib/explain";
+import { etaLines, etaToTarget } from "@/lib/eta";
 import { legacyNumbers } from "@/lib/legacy";
 import { isMissingColumn, rateFromPace } from "@/lib/profile-save";
 import { getSupabase } from "@/lib/supabase";
@@ -15,6 +16,8 @@ interface Props {
   profile: Profile;
   plan: Plan | null;
   planError: string | null;
+  /** 每週體重趨勢（kg/週，負數 = 下降）；未有 = null */
+  trendKgPerWeek: number | null;
   weightKg: number | null;
   onEditProfile: () => void;
   onLogout: () => void;
@@ -44,6 +47,7 @@ export default function Calculator({
   profile,
   plan,
   planError,
+  trendKgPerWeek,
   weightKg,
   onEditProfile,
   onLogout,
@@ -66,6 +70,15 @@ export default function Calculator({
     if (!formulaStale || !weightKg) return null;
     return legacyNumbers(profile, weightKg, toDateStr());
   }, [formulaStale, profile, weightKg]);
+
+  const etaTexts = useMemo(() => {
+    if (!plan || weightKg === null) return [];
+    const today = toDateStr();
+    return etaLines(
+      etaToTarget({ goal: profile.goal, weightKg, targetKg: profile.target_weight_kg, trendKgPerWeek, planKgPerWeek: plan.weeklyRateKg, today }),
+      today,
+    );
+  }, [plan, weightKg, profile.goal, profile.target_weight_kg, trendKgPerWeek]);
 
   const explain = useMemo(() => (plan ? explainPlan(plan, profile) : []), [plan, profile]);
 
@@ -168,6 +181,15 @@ export default function Calculator({
                 <Row k="預計每週變化" v={weeklyText(plan.weeklyRateKg)} />
               )}
             </div>
+
+            {etaTexts.length > 0 && (
+              <div className="mt-3 space-y-1 rounded-xl bg-teal-50 p-3 text-sm text-teal-900">
+                <p className="font-bold">幾時到目標體重？</p>
+                {etaTexts.map((l) => (
+                  <p key={l}>{l}</p>
+                ))}
+              </div>
+            )}
 
             {plan.missing.length > 0 && (
               <p className={`${infoBox} mt-3`}>

@@ -19,6 +19,7 @@ import { sumBurned } from "@/lib/exercise";
 import { isMealType, sumFood } from "@/lib/food";
 import type { History } from "@/lib/gamify";
 import { normalizePrefs, sensitiveReason } from "@/lib/persona";
+import { applyCheat, cheatExtraKcal, stampState, type CheatRow } from "@/lib/stamps";
 import { getSupabase } from "@/lib/supabase";
 import type { FoodLog, MealType, Profile, UserPrefs, WeightLog } from "@/lib/types";
 
@@ -49,8 +50,11 @@ export default function Home() {
   const [logs, setLogs] = useState<WeightLog[]>([]);
   const [foodToday, setFoodToday] = useState<FoodLog[]>([]);
   const [exerciseBurned, setExerciseBurned] = useState(0);
-  const [foodHistory, setFoodHistory] = useState<{ logged_on: string; meal_type: MealType }[]>([]);
-  const [moveHistory, setMoveHistory] = useState<string[]>([]);
+  const [foodHistory, setFoodHistory] = useState<{ logged_on: string; meal_type: MealType; calories: number }[]>([]);
+  const [moveHistory, setMoveHistory] = useState<{ logged_on: string; calories: number }[]>([]);
+  const [cheatRows, setCheatRows] = useState<CheatRow[]>([]);
+  /** cheat_days 表存在（已跑 schema_cheat.sql）先可以領放縱日 */
+  const [cheatReady, setCheatReady] = useState(false);
   const [prefsRow, setPrefsRow] = useState<Partial<UserPrefs> | null>(null);
   const [initialMeal, setInitialMeal] = useState<MealType | null>(null);
   const [dataReady, setDataReady] = useState(false);
@@ -95,7 +99,7 @@ export default function Home() {
     const supabase = getSupabase();
     const today = toDateStr();
     const from = addDays(today, -HISTORY_DAYS);
-    const [p, w, f, x, fh, xh, pr] = await Promise.all([
+    const [p, w, f, x, fh, xh, pr, ch] = await Promise.all([
       supabase.from("profiles").select("*").maybeSingle(),
       supabase.from("weight_logs").select("id, logged_on, weight_kg").order("logged_on", { ascending: true }),
       supabase
@@ -104,9 +108,10 @@ export default function Home() {
         .eq("logged_on", today)
         .order("created_at", { ascending: true }),
       supabase.from("exercise_logs").select("calories").eq("logged_on", today),
-      supabase.from("food_logs").select("logged_on, meal_type").gte("logged_on", from),
-      supabase.from("exercise_logs").select("logged_on").gte("logged_on", from),
+      supabase.from("food_logs").select("logged_on, meal_type, calories").gte("logged_on", from),
+      supabase.from("exercise_logs").select("logged_on, calories").gte("logged_on", from),
       supabase.from("user_prefs").select("*").maybeSingle(),
+      supabase.from("cheat_days").select("cheat_on, stamps_through"),
     ]);
     const err = p.error ?? w.error ?? f.error ?? fh.error;
     if (err) {
@@ -115,10 +120,13 @@ export default function Home() {
       setProfile(p.data as Profile | null);
       setLogs((w.data ?? []) as WeightLog[]);
       setFoodToday((f.data ?? []) as FoodLog[]);
-      setFoodHistory((fh.data ?? []) as { logged_on: string; meal_type: MealType }[]);
+      setFoodHistory((fh.data ?? []) as { logged_on: string; meal_type: MealType; calories: number }[]);
       // 運動表／設定表未建立（未跑對應 SQL）就用預設，唔影響其他功能
       setExerciseBurned(x.error ? 0 : sumBurned(x.data ?? []));
-      setMoveHistory(xh.error ? [] : (xh.data ?? []).map((r) => r.logged_on as string));
+      setMoveHistory(xh.error ? [] : ((xh.data ?? []) as { logged_on: string; calories: number }[]));
+      // 放縱日表未建立（未跑 schema_cheat.sql）：印花照計，只係領取唔到
+      setCheatReady(!ch.error);
+      setCheatRows(ch.error ? [] : ((ch.data ?? []) as CheatRow[]));
       setPrefsRow(pr.error ? null : (pr.data as Partial<UserPrefs> | null));
     }
     setDataReady(true);
@@ -135,6 +143,8 @@ export default function Home() {
       setExerciseBurned(0);
       setFoodHistory([]);
       setMoveHistory([]);
+      setCheatRows([]);
+      setCheatReady(false);
       setPrefsRow(null);
       setDataReady(false);
     }
@@ -155,22 +165,38 @@ export default function Home() {
     if (!profile || !latest) return null;
     return computePlan({ profile, weightKg: latest.weight_kg, today: toDateStr() });
   }, [profile, latest]);
-  const plan = planResult?.ok ? planResult.plan : null;
+  const basePlan = planResult?.ok ? planResult.plan : null;
   const planError = planResult && !planResult.ok ? planResult.reason : null;
 
   const history: History = useMemo(() => {
     const mealsByDate = new Map<string, Set<MealType>>();
+    const kcalByDate = new Map<string, number>();
+    const burnedByDate = new Map<string, number>();
     for (const r of foodHistory) {
       const s = mealsByDate.get(r.logged_on) ?? new Set<MealType>();
       s.add(r.meal_type);
       mealsByDate.set(r.logged_on, s);
+      kcalByDate.set(r.logged_on, (kcalByDate.get(r.logged_on) ?? 0) + (Number(r.calories) || 0));
+    }
+    for (const r of moveHistory) {
+      burnedByDate.set(r.logged_on, (burnedByDate.get(r.logged_on) ?? 0) + (Number(r.calories) || 0));
     }
     return {
       weightDates: new Set(logs.map((l) => l.logged_on)),
       mealsByDate,
-      moveDates: new Set(moveHistory),
+      moveDates: new Set(moveHistory.map((r) => r.logged_on)),
+      kcalByDate,
+      burnedByDate,
     };
   }, [logs, foodHistory, moveHistory]);
+
+  // 印花（要三樣齊 ＋ 食量唔超上限）同放縱日。放縱日當日，全 app 用加咗額外 kcal 嘅計劃。
+  const stamps = useMemo(
+    () => (basePlan ? stampState({ history, plan: basePlan, today, rows: cheatRows }) : null),
+    [history, basePlan, today, cheatRows],
+  );
+  const cheatExtra = basePlan ? cheatExtraKcal(basePlan) : 0;
+  const plan = basePlan && stamps?.cheatToday ? applyCheat(basePlan, cheatExtra) : basePlan;
 
   // 敏感時刻（食得太少、減得太快、超標、隔咗幾日先返嚟、65 歲或以上）：一律溫柔，唔 roast
   const eaten = useMemo(() => sumFood(foodToday), [foodToday]);
@@ -187,8 +213,9 @@ export default function Home() {
       budgetKcal,
       trendKgPerWeek: weeklyTrendKg(logs),
       daysSinceLastLog: last ? diffDays(last, today) : null,
+      cheatToday: stamps?.cheatToday ?? false,
     });
-  }, [profile, history, today, age, eaten.calories, budgetKcal, logs]);
+  }, [profile, history, today, age, eaten.calories, budgetKcal, logs, stamps?.cheatToday]);
   const remainingKcal = plan ? budgetKcal - eaten.calories : null;
 
   async function logout() {
@@ -248,6 +275,9 @@ export default function Home() {
           prefs={prefs}
           reason={reason}
           history={history}
+          stamps={stamps}
+          cheatExtra={cheatExtra}
+          cheatReady={cheatReady}
           onGoWeight={() => setTab("weight")}
           onGoFood={() => setTab("food")}
           onGoExercise={() => setTab("exercise")}
@@ -276,7 +306,8 @@ export default function Home() {
           userId={uid}
           onChanged={() => void load()}
           profile={profile}
-          plan={plan}
+          plan={basePlan}
+          trendKgPerWeek={weeklyTrendKg(logs)}
           planError={planError}
           weightKg={latest?.weight_kg ?? null}
           onEditProfile={() => setEditing(true)}

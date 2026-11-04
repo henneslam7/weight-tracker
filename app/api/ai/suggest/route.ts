@@ -9,6 +9,7 @@ import {
 } from "@/lib/ai";
 import { dayBudget, remaining } from "@/lib/budget";
 import { computePlan } from "@/lib/calc";
+import { applyCheat, cheatExtraKcal } from "@/lib/stamps";
 import { nowInZone } from "@/lib/date";
 import { sumBurned } from "@/lib/exercise";
 import { isMealType, sumFood } from "@/lib/food";
@@ -77,7 +78,10 @@ export async function POST(req: Request) {
   const planR = computePlan({ profile, weightKg: weight, today });
   if (!planR.ok) return json({ error: "no_plan", message: planR.reason }, 409);
 
-  const budget = dayBudget(planR.plan, exerciseR.error ? 0 : sumBurned(exerciseR.data ?? []));
+  // 放縱日：上限同 app 顯示一致（表未建立或讀唔到就當唔係放縱日）
+  const cheatR = await auth.supabase.from("cheat_days").select("cheat_on").eq("cheat_on", today).limit(1);
+  const plan = !cheatR.error && (cheatR.data?.length ?? 0) > 0 ? applyCheat(planR.plan, cheatExtraKcal(planR.plan)) : planR.plan;
+  const budget = dayBudget(plan, exerciseR.error ? 0 : sumBurned(exerciseR.data ?? []));
   const rem = remaining(budget, sumFood(foodR.data ?? []));
 
   // 剩餘太少／已超標：唔 call AI（慳錢），回覆支持性訊息，唔計入次數

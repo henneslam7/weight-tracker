@@ -23,7 +23,7 @@ export function normalizePrefs(raw: Partial<UserPrefs> | null | undefined, age: 
   };
 }
 
-export type SensitiveReason = "senior" | "fast" | "over" | "low" | "returning";
+export type SensitiveReason = "cheat" | "senior" | "fast" | "over" | "low" | "returning";
 
 export interface SensitiveInput {
   age: number | null;
@@ -37,6 +37,8 @@ export interface SensitiveInput {
   trendKgPerWeek: number | null;
   /** 距離上一次有記錄嘅日數（唔計今日）；冇記錄 = null */
   daysSinceLastLog: number | null;
+  /** 今日係放縱日：兩個街坊好好人，唔 roast */
+  cheatToday?: boolean;
 }
 
 /**
@@ -44,6 +46,7 @@ export interface SensitiveInput {
  *  65 歲或以上、減得太快、超標、傍晚都食得好少、隔咗幾日先返嚟。
  */
 export function sensitiveReason(i: SensitiveInput): SensitiveReason | null {
+  if (i.cheatToday) return "cheat";
   if (i.age !== null && i.age >= SENIOR_AGE) return "senior";
   if (i.goal === "lose" && i.trendKgPerWeek !== null && i.trendKgPerWeek < -1) return "fast";
   if (i.budgetKcal > 0 && i.eatenKcal > i.budgetKcal) return "over";
@@ -63,6 +66,7 @@ export function roastAllowed(prefs: UserPrefs, reason: SensitiveReason | null): 
 /** 敏感時刻對應嘅溫柔對白（senior 冇專屬對白，用一般提示） */
 export function sensitiveKind(reason: SensitiveReason | null): Kind | null {
   switch (reason) {
+    case "cheat": return "cheat";
     case "over": return "over";
     case "low": return "low";
     case "fast": return "fast";

@@ -41,12 +41,12 @@ export type Kind =
   | "weight" | "breakfast" | "lunch" | "dinner" | "snack"
   | "move" | "rest" | "evening" | "inactive"
   | "allDone" | "stamp" | "goal"
-  | "over" | "low" | "fast" | "welcomeBack";
+  | "over" | "low" | "fast" | "welcomeBack" | "cheat";
 
 type Lines = Partial<Record<Tone, Line[]>>;
 
 /** 呢啲情境屬於「敏感時刻」，任何語氣強度都只用溫柔版 */
-export const SENSITIVE_KINDS: readonly Kind[] = ["over", "low", "fast", "welcomeBack"];
+export const SENSITIVE_KINDS: readonly Kind[] = ["over", "low", "fast", "welcomeBack", "cheat"];
 
 const LINES: Record<Kind, Lines> = {
   weight: {
@@ -163,6 +163,15 @@ const LINES: Record<Kind, Lines> = {
   },
   welcomeBack: {
     soft: [F("返嚟就好喇，咩都唔使講。由今日開始記就得。"), C("歡迎返嚟，由今日再嚟過。")],
+  },
+  // 放縱日：兩個街坊都好好人，唔挑剔、唔 roast
+  cheat: {
+    soft: [
+      F("今日係放縱日喎！歡嬸一句都唔嬲你，想食咩就食，慢慢食，食得開心先啱。"),
+      C("集齊七個印花，真係有恆心！陳伯請你，今日好好食一餐，值得。"),
+      F("放假喇！今日唔使計得咁盡，開心食，聽日我哋照常再嚟。"),
+      C("一日冇問題嘅，大局唔會因為一餐而變。食開心啲，陳伯同歡嬸陪住你。"),
+    ],
   },
 };
 
