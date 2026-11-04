@@ -17,7 +17,9 @@ import { dayLogFor, stampDates, tasksFor, type History } from "@/lib/gamify";
 import { addDays } from "@/lib/date";
 import { effectiveTone, sensitiveKind, type SensitiveReason } from "@/lib/persona";
 import type { FoodLog, MealType, Profile, UserPrefs, WeightLog } from "@/lib/types";
+import { useState } from "react";
 import IntakeProgress from "./IntakeProgress";
+import ShareDialog from "./ShareDialog";
 import { InstallBanner } from "./InstallButton";
 import { Say } from "./Persona";
 import Quests from "./Quests";
@@ -64,6 +66,7 @@ export default function Today({
   onGoExercise,
   onChanged,
 }: Props) {
+  const [sharing, setSharing] = useState(false);
   const now = new Date();
   const today = toDateStr(now);
   const latest = logs.length ? logs[logs.length - 1] : null;
@@ -135,6 +138,14 @@ export default function Today({
         {planError && <p className={infoBox}>{planError}</p>}
         {!planError && !plan && <p className={infoBox}>記錄體重後，就會計出你嘅每日目標。</p>}
         {plan && <IntakeProgress plan={plan} totals={sumFood(foodToday)} exerciseBurned={exerciseBurned} />}
+        {plan && (
+          <button
+            className="mt-3 w-full rounded-xl bg-teal-50 py-2.5 font-bold text-teal-800 ring-1 ring-teal-200 active:bg-teal-100"
+            onClick={() => setSharing(true)}
+          >
+            分享今日（靚圖）
+          </button>
+        )}
         <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-3 text-sm">
           <span className="text-stone-500">今日運動 {exerciseBurned} kcal</span>
           <button className="font-semibold text-teal-800 underline" onClick={onGoExercise}>
@@ -166,6 +177,9 @@ export default function Today({
       </section>
 
       <p className="text-xs text-stone-400">{DISCLAIMER}</p>
+      {sharing && plan && (
+        <ShareDialog today={today} plan={plan} foods={foodToday} exerciseBurned={exerciseBurned} onClose={() => setSharing(false)} />
+      )}
     </div>
   );
 }
