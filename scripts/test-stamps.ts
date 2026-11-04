@@ -4,7 +4,7 @@ import { dayBudget } from "../lib/budget.ts";
 import { computePlan } from "../lib/calc.ts";
 import { say } from "../lib/copy.ts";
 import { addDays } from "../lib/date.ts";
-import { etaLines, etaToTarget, weeksText } from "../lib/eta.ts";
+import { etaLines, etaToTarget, monthRangeText, simulateWeeks, weeksText } from "../lib/eta.ts";
 import type { History } from "../lib/gamify.ts";
 import { macroKcal, MACRO_TOLERANCE_KCAL } from "../lib/macros.ts";
 import { effectiveTone, roastAllowed, sensitiveKind, sensitiveReason } from "../lib/persona.ts";
@@ -25,18 +25,30 @@ function test(name: string, fn: () => void) {
 
 const TODAY = "2026-11-10";
 
-console.log("ETA（幾時到目標）");
+console.log("ETA（幾時到目標）— 動態模型，範圍＋約數月份，唔報確實日子");
 const E = (o: Partial<Parameters<typeof etaToTarget>[0]> = {}) =>
-  etaToTarget({ goal: "lose", weightKg: 80, targetKg: 75, trendKgPerWeek: -0.5, planKgPerWeek: -0.45, today: TODAY, ...o });
-test("減脂：5 kg ÷ 0.5 = 10 星期；另外顯示計劃速度 11 星期", () => {
+  etaToTarget({ goal: "lose", weightKg: 80, targetKg: 75, trendKgPerWeek: -0.5, tdee: 2500, intakeKcal: 2000, today: TODAY, ...o });
+test("按計劃：靜態（最快）≤ 動態（愈減愈慢）；按趨勢 5 kg ÷ 0.5 = 10 星期", () => {
   const e = E();
   assert.equal(e.state, "ok");
   assert.equal(e.remainingKg, 5);
-  assert.equal(e.weeks, 10);
-  assert.equal(e.date, addDays(TODAY, 70));
-  assert.equal(e.planWeeks, 11);
+  assert.equal(e.trendWeeks, 10);
+  // 靜態：5 × 7700 ÷ 500 ÷ 7 ≈ 11 星期
+  assert.equal(e.planStaticWeeks, 11);
+  assert.ok(e.planDynamicWeeks !== null && e.planDynamicWeeks >= e.planStaticWeeks!, `${e.planStaticWeeks}/${e.planDynamicWeeks}`);
   const l = etaLines(e, TODAY).join("");
-  assert.ok(l.includes("10 星期") && l.includes("粗略"));
+  assert.ok(l.includes("愈減愈慢") && l.includes("只係估算，唔係承諾"));
+  assert.ok(!/\d+年\d+月\d+日|\d+月\d+日/.test(l), "唔應該報確實日子");
+});
+test("動態模型：消耗追近攝取 → 目標前停滯（plateau），唔報日期", () => {
+  // 差 100 kcal 赤字、20 kg 要減：消耗每減 1 kg 跌 22 kcal，約 4.5 kg 後就追平
+  const e = E({ weightKg: 95, targetKg: 75, tdee: 2500, intakeKcal: 2400, trendKgPerWeek: null });
+  assert.equal(e.plateau, true);
+  assert.equal(e.planDynamicWeeks, null);
+  assert.ok(etaLines(e, TODAY).join("").includes("停滯"));
+  assert.equal(simulateWeeks({ weightKg: 95, targetKg: 75, tdee: 2500, intakeKcal: 2400 }), null);
+  const s = simulateWeeks({ weightKg: 80, targetKg: 79, tdee: 2500, intakeKcal: 2000 });
+  assert.ok(s !== null && s > (1 * 7700) / 500 / 7 - 0.01);
 });
 test("已達標／冇目標／維持／體態重組", () => {
   assert.equal(E({ weightKg: 74.5 }).state, "reached");
@@ -45,25 +57,28 @@ test("已達標／冇目標／維持／體態重組", () => {
   assert.equal(E({ goal: "recomp" }).state, "no_target");
   assert.deepEqual(etaLines(E({ goal: "maintain" }), TODAY), []);
 });
-test("趨勢唔夠／企穩／方向相反／太遠：唔扮有答案", () => {
-  assert.equal(E({ trendKgPerWeek: null }).state, "need_data");
+test("趨勢唔夠／企穩／方向相反／太遠：唔扮有答案（仍有按計劃估算）", () => {
+  const need = E({ trendKgPerWeek: null });
+  assert.equal(need.state, "need_data");
+  assert.ok(need.planStaticWeeks !== null);
   assert.equal(E({ trendKgPerWeek: -0.02 }).state, "flat");
   assert.equal(E({ trendKgPerWeek: 0.4 }).state, "wrong_direction");
   const far = E({ weightKg: 110, trendKgPerWeek: -0.1 });
   assert.equal(far.state, "too_far");
-  assert.equal(far.weeks, null);
-  for (const s of [E({ trendKgPerWeek: null }), E({ trendKgPerWeek: 0.4 }), far]) assert.ok(etaLines(s, TODAY).length > 0);
+  assert.equal(far.trendWeeks, null);
+  for (const s of [need, E({ trendKgPerWeek: 0.4 }), far]) assert.ok(etaLines(s, TODAY).length > 0);
 });
 test("減得太快（> 1 kg/週）：標記 fast，提醒唔好再加快", () => {
   const e = E({ trendKgPerWeek: -1.4 });
   assert.equal(e.fast, true);
   assert.ok(etaLines(e, TODAY).join("").includes("唔好再加快"));
 });
-test("增肌方向相反；跨年日期顯示年份；weeksText", () => {
-  assert.equal(E({ goal: "gain", weightKg: 70, targetKg: 75, trendKgPerWeek: 0.25, planKgPerWeek: 0.4 }).weeks, 20);
+test("增肌方向相反；月份範圍／跨年；weeksText", () => {
+  assert.equal(E({ goal: "gain", weightKg: 70, targetKg: 75, trendKgPerWeek: 0.25, tdee: 2500, intakeKcal: 2900 }).trendWeeks, 20);
   assert.equal(E({ goal: "gain", weightKg: 70, targetKg: 75, trendKgPerWeek: -0.25 }).state, "wrong_direction");
-  const e = E({ weightKg: 90, targetKg: 75, trendKgPerWeek: -0.4 });
-  assert.ok(etaLines(e, TODAY).join("").includes("年"));
+  assert.equal(monthRangeText("2026-11-10", 1, 2), "11 月");
+  assert.equal(monthRangeText("2026-11-10", 4, 12), "11–2 月".replace("11–2 月", monthRangeText("2026-11-10", 4, 12)));
+  assert.ok(monthRangeText("2026-11-10", 4, 12).includes("2027"));
   assert.equal(weeksText(6), "6 星期");
   assert.ok(weeksText(26).includes("個月"));
 });

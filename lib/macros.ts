@@ -74,3 +74,37 @@ export function checkMacros(i: { targetKcal: number; proteinG: number; carbsG: n
   if (Math.abs(diff) > MACRO_TOLERANCE_KCAL) return `三大營養素加埋同目標熱量差 ${Math.round(diff)} kcal（容許 ±${MACRO_TOLERANCE_KCAL}）。`;
   return null;
 }
+
+export type Macro = "protein" | "carbs" | "fat";
+
+/**
+ * 用戶鎖定某啲營養素（克數）之後，用未鎖嘅嚟配平總熱量（需求 §4.4）。
+ * 鎖咗全部 3 項、或者配唔平（要負數）→ ok = false，並講明原因；唔會暗中改動已鎖定嘅克數。
+ * 配平用嘅營養素：只剩 1 項未鎖 → 由佢吸收；剩 2 項 → 脂肪保持原樣，碳水吸收。
+ */
+export function rebalanceMacros(i: {
+  targetKcal: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  locked: readonly Macro[];
+}): { ok: boolean; protein: number; carbs: number; fat: number; kcal: number; reason: string | null } {
+  const t = Math.round(i.targetKcal);
+  let { protein: p, carbs: c, fat: f } = i;
+  const free = (["protein", "carbs", "fat"] as const).filter((m) => !i.locked.includes(m));
+  const fail = (reason: string) => ({ ok: false, protein: p, carbs: c, fat: f, kcal: macroKcal(p, c, f), reason });
+  if (free.length === 0) {
+    const err = checkMacros({ targetKcal: t, proteinG: p, carbsG: c, fatG: f });
+    return err ? fail(`三項都鎖定咗，但${err}`) : { ok: true, protein: p, carbs: c, fat: f, kcal: macroKcal(p, c, f), reason: null };
+  }
+  const absorb = free.includes("carbs") ? "carbs" : free[0];
+  if (absorb === "carbs") c = (t - 4 * p - 9 * f) / 4;
+  else if (absorb === "protein") p = (t - 4 * c - 9 * f) / 4;
+  else f = (t - 4 * p - 4 * c) / 9;
+  const v = absorb === "carbs" ? c : absorb === "protein" ? p : f;
+  if (v < 0) {
+    return fail("你鎖定嘅營養素已經超過目標熱量，配唔平。請減少鎖定嘅克數，或者提高目標熱量。");
+  }
+  p = Math.round(p); c = Math.round(c); f = Math.round(f);
+  return { ok: true, protein: p, carbs: c, fat: f, kcal: macroKcal(p, c, f), reason: null };
+}

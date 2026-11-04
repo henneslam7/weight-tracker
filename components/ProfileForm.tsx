@@ -6,12 +6,13 @@ import {
   ageOn,
   FORMULA_VERSION,
   isSenior,
-  MAX_DEFICIT_RATIO,
   MIN_CALORIES,
   PACE_LABEL,
   previewPaces,
   SENIOR,
   validateProfile,
+  weeklyGoalAdvice,
+  computePlan,
 } from "@/lib/calc";
 import { toDateStr } from "@/lib/date";
 import { isMissingColumn, legacyLevelFromSteps, legacyRow, rateFromPace } from "@/lib/profile-save";
@@ -98,6 +99,7 @@ export default function ProfileForm({
   // ── 速度檔位 ──
   const [pace, setPace] = useState<Pace>(initial?.pace ?? "standard");
   const [customKcal, setCustomKcal] = useState(initial?.custom_kcal ? String(initial.custom_kcal) : "");
+  const [wantKg, setWantKg] = useState("");
   // ── 安全篩查（只儲存結果，唔儲存答案）──
   const [answers, setAnswers] = useState<Record<string, Answer | undefined>>(() => {
     if (initial?.risk_review !== "clear") return {};
@@ -138,6 +140,15 @@ export default function ProfileForm({
     if (!draft || goal !== "lose" || !weightForPlan) return null;
     return previewPaces({ profile: draft, weightKg: weightForPlan, today: toDateStr() });
   }, [draft, goal, weightForPlan]);
+
+  // 「想每週減 X kg」→ 反推 kcal，檢查安全，並提醒估算唔係保證（只係換算，唔會自動採用）
+  const advice = useMemo(() => {
+    const kg = Number(wantKg);
+    if (!draft || !weightForPlan || !(kg > 0) || kg > 3) return null;
+    const r = computePlan({ profile: draft, weightKg: weightForPlan, today: toDateStr() });
+    if (!r.ok) return null;
+    return weeklyGoalAdvice({ tdee: r.plan.tdee, kgPerWeek: kg, sex, senior: r.plan.senior, review: riskReview });
+  }, [draft, weightForPlan, wantKg, sex, riskReview]);
 
   function buildProfile(): Profile {
     const steps = meanSteps === "" ? null : Math.round(Number(meanSteps));
@@ -484,12 +495,12 @@ export default function ProfileForm({
                 >
                   <span className="font-semibold">{PACE_LABEL[p]}</span>
                   <span className="ml-2 text-xs text-slate-500">
-                    {p === "gentle" ? "赤字約 10–15%" : p === "standard" ? "赤字約 15–20%" : "赤字約 20–25%"}
+                    {p === "gentle" ? "赤字約 10–15%（易維持）" : p === "standard" ? "赤字約 15–20%（優先推薦）" : "赤字約 20–25%（要監察）"}
                   </span>
                   {pv && (
                     <span className="mt-0.5 block text-sm text-slate-600">
                       {disabled
-                        ? "你而家唔適用（未完成安全篩查、BMI 或年齡）"
+                        ? "你而家唔適用（未完成安全篩查，或 65 歲或以上）"
                         : `約 ${pv.targetCalories} kcal／日 · 約減 ${Math.abs(Math.round(pv.weeklyRateKg * 20) / 20).toFixed(2)} kg／週`}
                     </span>
                   )}
@@ -510,14 +521,34 @@ export default function ProfileForm({
                   type="number"
                   inputMode="numeric"
                   aria-label="自訂每日 kcal"
-                  placeholder={`最少 ${MIN_CALORIES[sex]}，赤字最多 ${Math.round(MAX_DEFICIT_RATIO * 100)}%`}
+                  placeholder={`最少 ${MIN_CALORIES[sex]} kcal`}
                   className={input}
                   value={customKcal}
                   onChange={(e) => setCustomKcal(e.target.value)}
                 />
                 <p className="mt-1 text-xs text-slate-500">
-                  唔會靜靜雞幫你改數字：太低或赤字超過 {Math.round((senior ? SENIOR.maxDeficitRatio : MAX_DEFICIT_RATIO) * 100)}% 會直接話你知冇被採用。
+                  唔會靜靜雞幫你改數字：低過 {MIN_CALORIES[sex]} kcal 下限、{senior ? `超過 65 歲或以上嘅 ${Math.round(SENIOR.maxDeficitRatio * 100)}% 上限、` : "赤字超過 25% 而未通過安全小篩查、"}會直接話你知冇被採用。赤字愈大，愈要留意飢餓、疲倦同睡眠。
                 </p>
+                <div className="mt-2 rounded-xl bg-slate-50 p-3">
+                  <label className={label} htmlFor="wantkg">想每週減幾多 kg？（只用嚟換算 kcal）</label>
+                  <input id="wantkg" type="number" inputMode="decimal" step="0.1" min={0.1} max={3} className={input} value={wantKg} onChange={(e) => setWantKg(e.target.value)} />
+                  {advice && (
+                    <div className="mt-2 space-y-1 text-sm">
+                      <p className="font-semibold">
+                        約要每日食 {advice.intakeKcal} kcal（赤字約 {advice.deficitPct}%）
+                        {advice.allowed ? "" : "：唔可以採用"}
+                      </p>
+                      {advice.messages.map((m) => (
+                        <p key={m} className="text-slate-600">{m}</p>
+                      ))}
+                      {advice.allowed && (
+                        <button type="button" className="font-bold text-teal-700 underline" onClick={() => setCustomKcal(String(advice.intakeKcal))}>
+                          用呢個 kcal
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

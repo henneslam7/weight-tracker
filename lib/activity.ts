@@ -60,6 +60,16 @@ export const WORK_SHIFT: Record<WorkActivity, number> = {
 /** 工作性質唔明：倍率範圍上限加闊，反映「可能更活躍」嘅不確定性 */
 export const UNKNOWN_WORK_EXTRA_HIGH = 0.05;
 
+/** 起始活動假設嘅描述（需求 §6：只係引導，唔係硬規則） */
+export const ACTIVITY_DESC: Record<StepsRange, string> = {
+  lt3000: "很低活動",
+  "3000_4999": "久坐至低活動",
+  "5000_6999": "低至輕度活動",
+  "7000_9999": "較多日常活動",
+  gte10000: "較多步行",
+  unknown: "活動量未明",
+};
+
 export function stepsRangeFromMean(n: number): KnownRange {
   if (n < 3000) return "lt3000";
   if (n < 5000) return "3000_4999";
@@ -96,7 +106,12 @@ export interface ActivityInput {
 }
 
 export type ActivitySource = "questionnaire_heuristic" | "device_assisted" | "legacy_level" | "user_override" | "trend_calibrated";
-export type Confidence = "low" | "medium" | "higher";
+/**
+ * 活動資料完整度（唔係 TDEE 準確度，亦唔係統計信心）：
+ * limited = 資料有缺（舊級別、工作性質唔明、運動重疊唔肯定、裝置覆蓋低）；good = 問卷資料齊。
+ * TDEE 嘅「校準狀態」另外由體重趨勢決定（見 lib/calibration.ts），單靠問卷永遠係「未校準」。
+ */
+export type DataQuality = "limited" | "good";
 
 export interface ActivityEstimate {
   status: "ok" | "needs_user_input";
@@ -110,7 +125,7 @@ export interface ActivityEstimate {
   exerciseKcalLow: number;
   exerciseKcalHigh: number;
   source: ActivitySource;
-  confidence: Confidence;
+  dataQuality: DataQuality;
   /** 解釋用 key，UI 用 */
   keys: string[];
   stepsRange: StepsRange | null;
@@ -147,12 +162,12 @@ export function estimateActivity(i: ActivityInput, weightKg: number): ActivityEs
         factorLow: r3(f - LEGACY_HALF_WIDTH),
         factorHigh: r3(f + LEGACY_HALF_WIDTH),
         source: "legacy_level",
-        confidence: "low",
+        dataQuality: "limited",
         keys: ["legacy_level"],
         stepsRange: null,
       };
     }
-    return { ...base, status: "needs_user_input", missing: ["steps_range"], factor: 0, factorLow: 0, factorHigh: 0, source: "questionnaire_heuristic", confidence: "low", keys: [], stepsRange: null };
+    return { ...base, status: "needs_user_input", missing: ["steps_range"], factor: 0, factorLow: 0, factorHigh: 0, source: "questionnaire_heuristic", dataQuality: "limited", keys: [], stepsRange: null };
   }
 
   // ── 步數範圍 ＋ 工作性質 ──
@@ -169,7 +184,6 @@ export function estimateActivity(i: ActivityInput, weightKg: number): ActivityEs
   }
   if (range === "gte10000" && work === "unknown") keys.push("high_steps_need_work");   // 唔可以單靠步數定級
 
-  let confidence: Confidence = "low";
   const deviceExact = exact && i.stepSource === "device" && i.stepCoverage === "high";
 
   // ── 額外固定運動（淨值）──
@@ -208,8 +222,8 @@ export function estimateActivity(i: ActivityInput, weightKg: number): ActivityEs
     keys.push("exercise_added");
   }
 
-  if (deviceExact && work !== "unknown" && !exerciseUncertain) confidence = "medium";
-  if (i.stepCoverage === "low") confidence = "low";
+  const dataQuality: DataQuality =
+    work !== "unknown" && !exerciseUncertain && i.stepCoverage !== "low" && i.stepSource !== "estimate" ? "good" : "limited";
 
   return {
     status: "ok",
@@ -221,7 +235,7 @@ export function estimateActivity(i: ActivityInput, weightKg: number): ActivityEs
     exerciseKcalLow: exerciseLow,
     exerciseKcalHigh: exerciseHigh,
     source: deviceExact ? "device_assisted" : "questionnaire_heuristic",
-    confidence,
+    dataQuality,
     keys,
     stepsRange: range,
   };

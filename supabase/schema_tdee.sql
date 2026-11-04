@@ -37,3 +37,8 @@ alter table public.profiles add column if not exists risk_review text not null d
 -- 用邊個版本嘅公式計出嚟，方便日後遷移同解釋
 alter table public.profiles add column if not exists formula_version text;
 alter table public.profiles add column if not exists activity_updated_at timestamptz;
+
+-- v3：按體重趨勢校準（逐步調整，每次最多 ±150、累計最多 ±300 kcal；由用戶撳「採用」先寫入）
+alter table public.profiles add column if not exists tdee_adjust_kcal integer
+  check (tdee_adjust_kcal between -300 and 300);
+alter table public.profiles add column if not exists calibrated_at timestamptz;

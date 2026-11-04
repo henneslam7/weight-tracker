@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { estimateActivity, STEP_TABLE } from "../lib/activity.ts";
-import { calibrateTdee } from "../lib/calibration.ts";
+import { calibrateTdee, type IntakeDay } from "../lib/calibration.ts";
 import {
   allowedPaces,
   calcBmr,
@@ -12,7 +12,10 @@ import {
   deficitFor,
   FORMULA_VERSION,
   kcalForWeeklyLoss,
-  MAX_DEFICIT_RATIO,
+  calculateEnergyPlan,
+  CAUTION_DEFICIT_RATIO,
+  tierOf,
+  weeklyGoalAdvice,
   MIN_CALORIES,
   paceFromRate,
   previewPaces,
@@ -20,7 +23,7 @@ import {
 } from "../lib/calc.ts";
 import { explainPlan } from "../lib/explain.ts";
 import { legacyNumbers } from "../lib/legacy.ts";
-import { allocateMacros, checkMacros, macroKcal, MACRO_TOLERANCE_KCAL } from "../lib/macros.ts";
+import { allocateMacros, checkMacros, macroKcal, MACRO_TOLERANCE_KCAL, rebalanceMacros } from "../lib/macros.ts";
 import { questionsFor, screenRisk } from "../lib/screening.ts";
 import type { Profile, WeightLog } from "../lib/types.ts";
 
@@ -93,13 +96,15 @@ test("A10 TDEE 2475、攝取 1900 → 赤字 575 ≈ 23.2%，未超 25%", () => 
   const d = deficitFor(2475, 1900);
   assert.equal(d.deficitKcal, 575);
   near(d.ratio, 0.2323, 0.0005);
-  assert.equal(d.exceedsCap, false);
+  assert.equal(d.caution, false);
+  assert.equal(d.tier, "progressive");
 });
-test("A11 攝取 1800 → 赤字 675 ≈ 27.3%，超出 25%", () => {
+test("A11 攝取 1800 → 赤字 675 ≈ 27.3%，屬審慎區（> 25%）", () => {
   const d = deficitFor(2475, 1800);
   assert.equal(d.deficitKcal, 675);
   near(d.ratio, 0.2727, 0.0005);
-  assert.equal(d.exceedsCap, true);
+  assert.equal(d.caution, true);
+  assert.equal(d.tier, "caution");
 });
 test("A12 / A13 週預測：575 → 約 0.52；舊 655 → 約 0.60 kg/週", () => {
   near((575 * 7) / 7700, 0.5227, 0.001);
@@ -126,23 +131,25 @@ test("B01 由冇運動 → 每週重訓 3 次：TDEE 上升，並重新評估", 
   assert.ok(b.tdee > a.tdee + 50, `${a.tdee} → ${b.tdee}`);
   assert.ok(b.exerciseKcal > 0 && a.exerciseKcal === 0);
 });
-test("B02 步數 6,000 ＋ 工作不明 → 低信心、列出欠缺資料、範圍闊過已知工作", () => {
+test("B02 步數 6,000 ＋ 工作不明 → 未校準、資料有缺、情境範圍闊過已知工作；唔稱精確", () => {
   const known = plan({ work_activity: "mostly_sitting" });
   const p = plan({ work_activity: "unknown" });
-  assert.equal(p.confidence, "low");
+  assert.equal(p.calibrationStatus, "uncalibrated");
+  assert.equal(p.dataQuality, "limited");
   assert.ok(p.missing.includes("work_activity"));
   assert.ok(p.tdeeHigh - p.tdeeLow > known.tdeeHigh - known.tdeeLow);
-  assert.ok(explainPlan(p, { ...base, work_activity: "unknown" }).some((l) => l.includes("信心：低")));
+  const ex = explainPlan(p, { ...base, work_activity: "unknown" }).join("\n");
+  assert.ok(ex.includes("未校準") && ex.includes("唔係統計信賴區間"));
 });
 test("B03 想每週減 1 kg → 反推熱量低過下限 → 自訂被擋、有警告、改用後備檔位", () => {
   const tdee = plan().tdee;
   const kcal = kcalForWeeklyLoss(tdee, 1);
-  assert.ok(kcal < MIN_CALORIES.male || deficitFor(tdee, kcal).exceedsCap);
+  assert.ok(kcal < MIN_CALORIES.male || deficitFor(tdee, kcal).caution);
   const p = plan({ pace: "custom", custom_kcal: Math.round(kcal) });
   assert.equal(p.status, "blocked");
   assert.ok(p.warnings.some((w) => w.includes("冇被採用")));
   assert.ok(p.targetCalories >= MIN_CALORIES.male);
-  assert.ok(p.deficitRatio <= MAX_DEFICIT_RATIO);
+  assert.ok(p.deficitRatio <= CAUTION_DEFICIT_RATIO);
   assert.notEqual(p.targetCalories, Math.round(kcal));
 });
 test("B04 蛋白質 ＋ 脂肪超過總熱量 → 拒絕", () => {
@@ -162,27 +169,57 @@ test("B06 改體重／年齡／身高 → 重新計算；公式版本跟住", ()
   assert.notEqual(plan({ height_cm: 185 }).bmr, a.bmr);
   assert.equal(a.formulaVersion, FORMULA_VERSION);
 });
-test("B07 記錄不足 → 唔出校準結果", () => {
-  const weights: WeightLog[] = [0, 1, 2].map((i) => ({ id: String(i), logged_on: `2026-10-${20 + i}`, weight_kg: 96 - i * 0.1 }));
-  const intake = [0, 1, 2].map((i) => ({ date: `2026-10-${20 + i}`, kcal: 2000 }));
-  assert.equal(calibrateTdee({ formulaTdee: 2475, weights, intake }).status, "insufficient_data");
-  // 食物夠、體重跨度唔夠
-  const w2: WeightLog[] = Array.from({ length: 8 }, (_, i) => ({ id: String(i), logged_on: `2026-10-${20 + i}`, weight_kg: 96 }));
-  const i2 = Array.from({ length: 14 }, (_, i) => ({ date: `2026-10-${10 + i}`, kcal: 2000 }));
-  assert.equal(calibrateTdee({ formulaTdee: 2475, weights: w2, intake: i2 }).status, "insufficient_data");
+const dstr = (off: number) => {
+  const d = new Date(Date.UTC(2026, 9, 31)); // 2026-10-31 為最後一日
+  d.setUTCDate(d.getUTCDate() + off);
+  return d.toISOString().slice(0, 10);
+};
+const wlog = (off: number, kg: number): WeightLog => ({ id: String(off), logged_on: dstr(off), weight_kg: kg });
+const idays = (from: number, to: number, kcal: number, complete = true): IntakeDay[] =>
+  Array.from({ length: to - from + 1 }, (_, i) => ({ date: dstr(from + i), kcal, complete }));
+const CAL_TODAY = "2026-11-01";
+test("B07 記錄不足（只有 3 日體重／窗口唔夠 4 次）→ 唔出校準結果", () => {
+  const r = calibrateTdee({ currentTdee: 2475, currentAdjustKcal: 0, weights: [wlog(-2, 96), wlog(-1, 95.9), wlog(0, 95.8)], intake: idays(-2, 0, 1900), today: CAL_TODAY });
+  assert.equal(r.status, "insufficient_data");
+  assert.equal(r.status === "insufficient_data" && r.reason, "weights_few");
 });
-test("B07b 資料足夠 → 出建議，但向公式值收窄（±15%）", () => {
-  const weights: WeightLog[] = Array.from({ length: 21 }, (_, i) => ({
-    id: String(i),
-    logged_on: `2026-10-${String(i + 1).padStart(2, "0")}`,
-    weight_kg: 96 - i * 0.05,
-  }));
-  const intake = Array.from({ length: 21 }, (_, i) => ({ date: `2026-10-${String(i + 1).padStart(2, "0")}`, kcal: 1700 }));
-  const r = calibrateTdee({ formulaTdee: 2475, weights, intake });
+test("B07b 資料足夠 → 出建議：逐步（≤ 150）、取整；兩個 7 日窗口平均", () => {
+  // 舊窗口 96.0，新窗口 95.5（每週 −0.5 kg），14 日完整攝取 1900 → 反推 TDEE ≈ 2450
+  const weights = [...Array.from({ length: 7 }, (_, i) => wlog(-13 + i, 96.0)), ...Array.from({ length: 7 }, (_, i) => wlog(-6 + i, 95.5))];
+  const r = calibrateTdee({ currentTdee: 2475, currentAdjustKcal: 0, weights, intake: idays(-13, 0, 1900), today: CAL_TODAY });
   assert.equal(r.status, "ok");
   if (r.status !== "ok") return;
-  assert.ok(r.observedTdee < 2475);
-  assert.ok(r.suggestedTdee >= 2475 * 0.85 - 1 && r.suggestedTdee <= 2475);
+  near(r.weeklyChangeKg, -0.5, 0.01);
+  assert.ok(Math.abs(r.observedTdee - 2450) <= 2);
+  assert.equal(r.stepKcal, 0); // 差距 < 75 kcal：唔調
+  // 實際消耗遠低於估算：食 1900、體重冇跌 → 反推 1900，建議減，但每次最多 150
+  const flat = [...Array.from({ length: 7 }, (_, i) => wlog(-13 + i, 96.0)), ...Array.from({ length: 7 }, (_, i) => wlog(-6 + i, 96.0))];
+  const r2 = calibrateTdee({ currentTdee: 2475, currentAdjustKcal: 0, weights: flat, intake: idays(-13, 0, 1900), today: CAL_TODAY });
+  assert.equal(r2.status, "ok");
+  if (r2.status !== "ok") return;
+  assert.equal(r2.stepKcal, -150);
+  assert.equal(r2.newAdjustKcal, -150);
+  // 累計最多 ±300
+  const r3 = calibrateTdee({ currentTdee: 2475 - 250, currentAdjustKcal: -250, weights: flat, intake: idays(-13, 0, 1400), today: CAL_TODAY });
+  assert.equal(r3.status === "ok" && r3.newAdjustKcal, -300);
+});
+test("B07c 太密（< 14 日）／兩個星期差距離譜 → 唔校準", () => {
+  const w = [...Array.from({ length: 7 }, (_, i) => wlog(-13 + i, 96.0)), ...Array.from({ length: 7 }, (_, i) => wlog(-6 + i, 96.0))];
+  const soon = calibrateTdee({ currentTdee: 2475, currentAdjustKcal: 0, weights: w, intake: idays(-13, 0, 1900), today: CAL_TODAY, lastCalibratedAt: "2026-10-25T00:00:00Z" });
+  assert.equal(soon.status === "insufficient_data" && soon.reason, "too_soon");
+  const jump = [...Array.from({ length: 7 }, (_, i) => wlog(-13 + i, 96.0)), ...Array.from({ length: 7 }, (_, i) => wlog(-6 + i, 93.0))];
+  const r = calibrateTdee({ currentTdee: 2475, currentAdjustKcal: 0, weights: jump, intake: idays(-13, 0, 1900), today: CAL_TODAY });
+  assert.equal(r.status === "insufficient_data" && r.reason, "implausible");
+});
+test("已套用校準：tdee 加減調整；狀態 initially_calibrated；調整夾喺 ±300", () => {
+  const a = plan({ tdee_adjust_kcal: -100, calibrated_at: "2026-10-20T00:00:00Z" });
+  assert.equal(a.tdee, 2475 - 100);
+  assert.equal(a.calibrationStatus, "initially_calibrated");
+  assert.equal(a.activitySource, "trend_calibrated");
+  assert.equal(a.tdeeLow, 2380 - 100);
+  assert.equal(plan({ tdee_adjust_kcal: 999, calibrated_at: "2026-10-20T00:00:00Z" }).tdeeAdjustKcal, 300);
+  assert.equal(plan().calibrationStatus, "uncalibrated");
+  assert.equal(plan().tdeeAdjustKcal, 0);
 });
 test("B08 步行類運動已計入步數 → 唔重複加；重訓照加", () => {
   const none = plan();
@@ -193,7 +230,7 @@ test("B08 步行類運動已計入步數 → 唔重複加；重訓照加", () =>
   assert.equal(cardioIn.tdee, none.tdee);
   assert.ok(cardioOut.exerciseKcal > 0);
   assert.ok(cardioUnk.exerciseKcal > 0 && cardioUnk.exerciseKcal < cardioOut.exerciseKcal);
-  assert.equal(cardioUnk.confidence, "low");
+  assert.equal(cardioUnk.dataQuality, "limited");
   assert.ok(weights.exerciseKcal > 0);
 });
 test("B09 唯一入口：目標熱量只由 lib/calc.ts 產生（UI／API 共用 computePlan）", () => {
@@ -214,7 +251,7 @@ test("B09 唯一入口：目標熱量只由 lib/calc.ts 產生（UI／API 共用
   // components/lib 入面除咗 explain／calc 系列，唔應該自己計 BMR／TDEE
   assert.deepEqual(offenders.filter((f) => !/lib\/(explain|calibration)\.ts$/.test(f)), []);
 });
-test("B09b 任何輸入（fuzz）：目標 ≥ 下限（或 TDEE）、赤字 ≤ 25%（65+ ≤ 15%）、宏量 ≤ 10 kcal", () => {
+test("B09b 任何輸入（fuzz）：目標 ≥ 下限（或 TDEE）、65+ ≤ 15%、未通過篩查 ≤ 25%、宏量 ≤ 10 kcal", () => {
   let seed = 12345;
   const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
   const pick = <T,>(a: readonly T[]) => a[Math.floor(rnd() * a.length)];
@@ -246,8 +283,9 @@ test("B09b 任何輸入（fuzz）：目標 ≥ 下限（或 TDEE）、赤字 ≤
     const x = r.plan;
     assert.ok(x.targetCalories >= Math.min(MIN_CALORIES[sex], x.tdee) - 1, JSON.stringify({ p, x }));
     if (p.goal === "lose") {
-      const cap = x.senior ? 0.15 : MAX_DEFICIT_RATIO;
-      assert.ok(x.deficitRatio <= cap + 0.002, `ratio ${x.deficitRatio} cap ${cap} ${JSON.stringify(p)}`);
+      // 唔設百分比硬上限：65+ ≤ 15%；未通過篩查 ≤ 25%；其餘只受 calories 下限限制
+      if (x.senior) assert.ok(x.deficitRatio <= 0.15 + 0.002, `ratio ${x.deficitRatio} ${JSON.stringify(p)}`);
+      else if (p.risk_review !== "clear") assert.ok(x.deficitRatio <= CAUTION_DEFICIT_RATIO + 0.002, `ratio ${x.deficitRatio} ${JSON.stringify(p)}`);
       if (x.status === "requires_review") assert.equal(x.dailyDeltaKcal, 0);
     }
     if (p.goal === "recomp") {
@@ -291,7 +329,8 @@ test("B11 切換檔位／自訂 kcal 後，宏量加埋 = 目標熱量", () => {
 });
 test("B12 未知步數及運動：有舊級別 → 低信心暫定值；全部欠 → 要求補充（唔扮高信心）", () => {
   const legacy = plan({ steps_range: null, work_activity: null, activity_level: "light" });
-  assert.equal(legacy.confidence, "low");
+  assert.equal(legacy.calibrationStatus, "uncalibrated");
+  assert.equal(legacy.dataQuality, "limited");
   assert.equal(legacy.activitySource, "legacy_level");
   assert.ok(legacy.missing.includes("steps_range"));
   const r = computePlan({ profile: { ...base, steps_range: "unknown", activity_level: null }, weightKg: W, today: TODAY });
@@ -299,7 +338,7 @@ test("B12 未知步數及運動：有舊級別 → 低信心暫定值；全部�
 });
 
 console.log("政策／透明度");
-test("進取檔（22.5%）只喺：已通過篩查 ＋ BMI ≥ 25 ＋ 非 65+ 容許；否則明確降級（唔靜靜雞）", () => {
+test("較進取（22.5%）：已通過篩查先容許；未通過／65+ 就明確降級（唔靜靜雞）；BMI 唔再係門檻", () => {
   assert.equal(plan({ pace: "faster", risk_review: "clear" }).pace, "faster");
   const na = plan({ pace: "faster", risk_review: "not_assessed" });
   assert.equal(na.pace, "standard");
@@ -309,19 +348,33 @@ test("進取檔（22.5%）只喺：已通過篩查 ＋ BMI ≥ 25 ＋ 非 65+ �
   const senior = plan({ pace: "standard", birth_date: "1955-01-01" });
   assert.equal(senior.pace, "gentle");
   assert.ok(senior.deficitRatio <= 0.15);
-  const lean = plan({ pace: "faster" }, 62);
-  assert.notEqual(lean.pace, "faster");
+  assert.equal(plan({ pace: "faster" }, 62).pace, "faster");
+  assert.ok(plan({ pace: "faster" }).warnings.some((w) => w.includes("較進取")));
 });
-test("自訂 kcal：25% 邊界（剛好 25% 容許，多 1 kcal 擋）", () => {
-  const tdee = plan().tdee; // 2475
-  const edge = Math.ceil(tdee * 0.75);
-  const ok = plan({ pace: "custom", custom_kcal: edge });
-  assert.equal(ok.status, "ok");
-  assert.equal(ok.targetCalories, edge);
-  assert.ok(ok.warnings.some((w) => w.includes("20%")));
-  const over = plan({ pace: "custom", custom_kcal: edge - 5 });
-  assert.equal(over.status, "blocked");
-  assert.ok(over.targetCalories > edge);
+test("審慎區（赤字 > 25%）：通過篩查嘅成年人可以用自訂 kcal（1,850 / 1,800），有強提醒、唔係預設", () => {
+  for (const [kcal, pct] of [[1850, 25.3], [1800, 27.3]] as const) {
+    const p = plan({ pace: "custom", custom_kcal: kcal, risk_review: "clear" });
+    assert.equal(p.status, "ok", String(kcal));
+    assert.equal(p.targetCalories, kcal);
+    assert.equal(p.deficitTier, "caution");
+    near(p.deficitRatio * 100, pct, 0.1);
+    assert.ok(p.warnings.some((w) => w.includes("審慎區")));
+  }
+  // 預設（standard）唔會去到審慎區
+  assert.notEqual(plan({ risk_review: "clear" }).deficitTier, "caution");
+  // 未完成／未通過篩查：> 25% 擋，並解釋
+  const na = plan({ pace: "custom", custom_kcal: 1800, risk_review: "not_assessed" });
+  assert.equal(na.status, "blocked");
+  assert.ok(na.warnings.some((w) => w.includes("安全小篩查")));
+  assert.notEqual(na.targetCalories, 1800);
+  // 65+：15% 上限仍然生效
+  const sr = plan({ pace: "custom", custom_kcal: 1700, birth_date: "1955-01-01", risk_review: "clear" });
+  assert.equal(sr.status, "blocked");
+  // calories 下限永遠生效（唔受篩查影響）
+  assert.equal(plan({ pace: "custom", custom_kcal: 1499, risk_review: "clear" }).status, "blocked");
+  assert.equal(plan({ pace: "custom", custom_kcal: 1500, risk_review: "clear" }).status, "ok");
+  assert.equal(tierOf(0.2), "normal");
+  assert.equal(tierOf(0.2501), "caution");
 });
 test("自訂 kcal：低過下限 / 唔低過 TDEE / 缺失 → 擋，並解釋", () => {
   for (const c of [1000, 1499, 2475, 3000, null]) {
@@ -350,14 +403,15 @@ test("舊資料 weekly_rate_kg → 檔位對應；allowedPaces", () => {
   assert.equal(paceFromRate(0.5), "standard");
   assert.equal(paceFromRate(0.75), "faster");
   assert.equal(paceFromRate(null), "standard");
-  assert.deepEqual(allowedPaces({ senior: true, review: "clear", bmi: 30 }), ["gentle"]);
-  assert.deepEqual(allowedPaces({ senior: false, review: "clear", bmi: 24 }), ["gentle", "standard"]);
+  assert.deepEqual(allowedPaces({ senior: true, review: "clear" }), ["gentle"]);
+  assert.deepEqual(allowedPaces({ senior: false, review: "not_assessed" }), ["gentle", "standard"]);
+  assert.deepEqual(allowedPaces({ senior: false, review: "clear" }), ["gentle", "standard", "faster"]);
 });
 test("遷移：只有舊欄位嘅 profile 都計到（低信心），有舊 vs 新比較", () => {
   const old: Profile = { sex: "male", birth_date: "1995-06-01", height_cm: 175, activity_level: "light", goal: "lose", target_weight_kg: 85, weekly_rate_kg: 0.75 };
   const r = computePlan({ profile: old, weightKg: W, today: TODAY });
   assert.ok(r.ok);
-  assert.equal(r.plan.confidence, "low");
+  assert.equal(r.plan.calibrationStatus, "uncalibrated");
   assert.equal(r.plan.activitySource, "legacy_level");
   assert.equal(r.plan.tdee, 2618); // 倍率仍然 1.375，同舊 app 一致
   assert.equal(r.plan.pace, "standard"); // faster 被降級：未完成篩查
@@ -368,27 +422,25 @@ test("遷移：只有舊欄位嘅 profile 都計到（低信心），有舊 vs �
 test("活動估算：精確 28 日步數優先過範圍；步數表邊界", () => {
   const e = estimateActivity({ meanSteps28d: 7000, stepsRange: "lt3000", workActivity: "mostly_sitting", stepSource: "device", stepCoverage: "high" }, W);
   near(e.factor, (STEP_TABLE["7000_9999"][0] + STEP_TABLE["7000_9999"][1]) / 2);
-  assert.equal(e.confidence, "medium");
+  assert.equal(e.dataQuality, "good");
   assert.equal(e.source, "device_assisted");
   assert.equal(estimateActivity({ meanSteps28d: 6999, workActivity: "mostly_sitting" }, W).stepsRange, "5000_6999");
   assert.equal(estimateActivity({ meanSteps28d: 4999.9, workActivity: "mostly_sitting" }, W).stepsRange, "3000_4999");
   // 高步數但工作不明 → 唔可以單靠步數定級
   const hi = estimateActivity({ stepsRange: "gte10000", workActivity: "unknown" }, W);
   assert.ok(hi.keys.includes("high_steps_need_work"));
-  assert.equal(hi.confidence, "low");
+  assert.equal(hi.dataQuality, "limited");
   // 覆蓋率低 → 唔會 medium
-  assert.equal(estimateActivity({ meanSteps28d: 8000, workActivity: "mixed", stepSource: "device", stepCoverage: "low" }, W).confidence, "low");
+  assert.equal(estimateActivity({ meanSteps28d: 8000, workActivity: "mixed", stepSource: "device", stepCoverage: "low" }, W).dataQuality, "limited");
 });
-test("宏量：蛋白質記錄基準；高 BMI 用目標體重；碳水過低先調整蛋白質／脂肪", () => {
-  const p = plan({ goal: "lose", target_weight_kg: 90 }, 130);
-  assert.equal(p.proteinBasis, "target");
-  assert.equal(p.proteinBasisKg, 90);
-  const q = plan({}, 80); // BMI 26
+test("宏量：蛋白質永遠按現時體重並記錄基準；碳水過低先調整蛋白質／脂肪", () => {
+  const q = plan({}, 80);
   assert.equal(q.proteinBasis, "current");
   assert.equal(q.proteinBasisKg, 80);
-  const obese = plan(); // 96kg / 175cm → BMI 31：蛋白質按目標體重 85kg 計
-  assert.equal(obese.proteinBasis, "target");
-  assert.equal(obese.proteinBasisKg, 85);
+  const obese = plan(); // 96kg：按現時體重（約 150 g），唔再用目標體重
+  assert.equal(obese.proteinBasis, "current");
+  assert.equal(obese.proteinBasisKg, 96);
+  assert.ok(obese.macros.proteinG >= 145 && obese.macros.proteinG <= 156, String(obese.macros.proteinG));
   near(q.proteinPerKg, 1.6, 0.02);
   const m = allocateMacros({ targetKcal: 1200, basisWeightKg: 80, proteinPerKg: 1.6, minProteinPerKg: 1.2, fatRatio: 0.25 });
   assert.ok(m.ok);

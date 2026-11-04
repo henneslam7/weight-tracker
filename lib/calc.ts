@@ -1,19 +1,27 @@
-import { estimateActivity, type ActivitySource, type Confidence } from "./activity.ts";
+import { ACTIVITY_DESC, estimateActivity, type ActivitySource, type DataQuality } from "./activity.ts";
 import { diffDays, isValidDateStr } from "./date.ts";
-import { allocateMacros } from "./macros.ts";
-import type { ActivityLevel, Goal, Pace, Profile, Sex, WeightLog } from "./types.ts";
+import { allocateMacros, macroKcal } from "./macros.ts";
+import type { ActivityLevel, CalibrationStatus, Goal, Pace, Profile, Sex, WeightLog } from "./types.ts";
 
 // ───────────── 常數（安全限制：唔好放寬）─────────────
 
 /** 公式版本。改動計算邏輯就要升版本，profile.formula_version 同呢個唔同 → 顯示「公式已更新」 */
-export const FORMULA_VERSION = "tdee-v2";
+export const FORMULA_VERSION = "tdee-v3";
 
 export const KCAL_PER_KG = 7700;
 export const MIN_AGE = 18;
-/** 減脂每日赤字最多 TDEE 嘅 25%（絕對上限：任何情況都唔會自動採用超過呢個） */
-export const MAX_DEFICIT_RATIO = 0.25;
+/**
+ * 赤字分級（唔係硬性醫學上限）：
+ *   ≤ 20% 一般；20–25% 較進取（要提醒）；> 25% 審慎區（要通過安全篩查、成年人先可以用，並有強提醒）。
+ * 真正嘅硬性限制只有：calories 下限（男 1500／女 1200）、篩查未通過、65+ 嘅 15% 上限。
+ */
+export const CAUTION_DEFICIT_RATIO = 0.25;
 /** 赤字超過 20% 要顯示額外提醒 */
 export const FAST_WARN_RATIO = 0.2;
+/** 一般成人蛋白質（g/kg）：篩查要專業評估嗰陣唔預設高蛋白 */
+export const REVIEW_PROTEIN_G_PER_KG = 0.8;
+/** TDEE 校準調整上限（kcal） */
+export const MAX_TDEE_ADJUST = 300;
 /** calories 下限 */
 export const MIN_CALORIES: Record<Sex, number> = { male: 1500, female: 1200 };
 export const RATE_LIMITS = {
@@ -37,7 +45,7 @@ export const PACE_ORDER: readonly FixedPace[] = ["gentle", "standard", "faster"]
 export const PACE_LABEL: Record<Pace, string> = {
   gentle: "溫和",
   standard: "標準",
-  faster: "進取",
+  faster: "較進取",
   custom: "自訂",
 };
 
@@ -57,10 +65,6 @@ export const FAT_CALORIE_RATIO = 0.25;
 export const MIN_TARGET_BMI = 18.5;
 /** 現時 BMI 低過呢個：唔提供減脂赤字 */
 export const MIN_CURRENT_BMI_TO_LOSE = 18.5;
-/** BMI 低過呢個：唔提供「進取」檔 */
-export const MIN_BMI_FOR_FASTER = 25;
-/** BMI 去到呢個以上，蛋白質改用目標體重計（如有） */
-export const PROTEIN_TARGET_BASIS_BMI = 30;
 
 /** 65 歲或以上較保守嘅設定（設計預設，唔係醫療標準，建議同醫生或註冊營養師確認） */
 export const SENIOR_AGE = 65;
@@ -149,7 +153,23 @@ export interface Plan {
   /** TDEE 合理範圍（取整） */
   tdeeLow: number;
   tdeeHigh: number;
-  confidence: Confidence;
+  /** 活動資料完整度（唔係準確度） */
+  dataQuality: DataQuality;
+  /** 校準狀態：未校準／已有體重趨勢／已初步校準 */
+  calibrationStatus: CalibrationStatus;
+  /** 已套用嘅校準調整（kcal，已包含喺 tdee 內）同上次校準日期 */
+  tdeeAdjustKcal: number;
+  calibratedAt: string | null;
+  /** 活動假設描述，例如「低至輕度活動（尚未校準）」 */
+  scenarioDescription: string;
+  /** 每週體重變化永遠只係估算 */
+  estimated: true;
+  weeklyEstimateMethod: "static_7700_heuristic";
+  /** 三大營養素換算 kcal，同同目標熱量嘅取整差 */
+  macroKcal: number;
+  kcalRoundingDelta: number;
+  /** 赤字分級：none（冇赤字）／normal（≤20%）／progressive（20–25%）／caution（>25%） */
+  deficitTier: "none" | "normal" | "progressive" | "caution";
   activitySource: ActivitySource;
   /** 活動倍率（不含額外運動）同其範圍 */
   activityFactor: number;
@@ -180,7 +200,7 @@ export interface Plan {
   /** 蛋白質每 kg 同計算用嘅體重（記錄基準） */
   proteinPerKg: number;
   proteinBasisKg: number;
-  proteinBasis: "current" | "target";
+  proteinBasis: "current";
   /** 一般說明 */
   notes: string[];
   /** 需要留意／被調整／被擋嘅警告 */
@@ -192,20 +212,69 @@ export type PlanResult =
   | { ok: true; plan: Plan }
   | { ok: false; reason: string };
 
+/** 體重／食物記錄概況（用嚟決定校準狀態「已有體重趨勢」） */
+export interface CalibrationSignals {
+  weightSpanDays: number;
+  weightCount: number;
+}
+
 export interface PlanInput {
   profile: Profile;
   weightKg: number;
   today: string;
+  signals?: CalibrationSignals;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const weeklyKg = (dailyDelta: number) => round2((dailyDelta * 7) / KCAL_PER_KG);
 
+export type DeficitTier = "none" | "normal" | "progressive" | "caution";
+export function tierOf(ratio: number): DeficitTier {
+  if (!(ratio > 0)) return "none";
+  if (ratio > CAUTION_DEFICIT_RATIO + 1e-9) return "caution";
+  if (ratio > FAST_WARN_RATIO + 1e-9) return "progressive";
+  return "normal";
+}
+
 /** 某個攝取量相對 TDEE 嘅赤字（用於檢查任何入口嘅自訂熱量／已記錄攝取） */
-export function deficitFor(tdee: number, intakeKcal: number): { deficitKcal: number; ratio: number; exceedsCap: boolean } {
+export function deficitFor(tdee: number, intakeKcal: number): { deficitKcal: number; ratio: number; tier: DeficitTier; caution: boolean } {
   const deficitKcal = tdee - intakeKcal;
   const ratio = tdee > 0 ? deficitKcal / tdee : 0;
-  return { deficitKcal, ratio, exceedsCap: ratio > MAX_DEFICIT_RATIO + 1e-9 };
+  const tier = tierOf(ratio);
+  return { deficitKcal, ratio, tier, caution: tier === "caution" };
+}
+
+export type EnergyPlanResult =
+  | {
+      ok: true;
+      deficitKcal: number;
+      /** 百分比（例如 23.23） */
+      deficitPct: number;
+      direction: "deficit" | "maintenance" | "surplus";
+      /** 每週體重變化估算（kg）：正數 = 減，負數 = 增。只係 7,700 kcal/kg 粗略算法 */
+      estimatedWeeklyChangeKg: number;
+      estimated: true;
+      method: "static_7700_heuristic";
+      tier: DeficitTier;
+    }
+  | { ok: false; reason: string };
+
+/** 需求 §9.1：由 TDEE 同目標攝取計赤字、百分比、每週估算。非法輸入拒絕計算。 */
+export function calculateEnergyPlan(tdee: number, intakeKcal: number): EnergyPlanResult {
+  if (!Number.isFinite(tdee) || tdee <= 0) return { ok: false, reason: "TDEE 唔合理，唔可以計算。" };
+  if (!Number.isFinite(intakeKcal) || intakeKcal <= 0) return { ok: false, reason: "目標攝取唔合理，唔可以計算。" };
+  const deficitKcal = tdee - intakeKcal;
+  const ratio = deficitKcal / tdee;
+  return {
+    ok: true,
+    deficitKcal,
+    deficitPct: ratio * 100,
+    direction: Math.abs(deficitKcal) < 1 ? "maintenance" : deficitKcal > 0 ? "deficit" : "surplus",
+    estimatedWeeklyChangeKg: (deficitKcal * 7) / KCAL_PER_KG,
+    estimated: true,
+    method: "static_7700_heuristic",
+    tier: tierOf(ratio),
+  };
 }
 
 /** 想每週減 X kg，反推要食幾多 kcal（只係數學，未經安全檢查；要再過 computePlan 嘅 custom 路徑） */
@@ -213,22 +282,55 @@ export function kcalForWeeklyLoss(tdee: number, kgPerWeek: number): number {
   return tdee - (kgPerWeek * KCAL_PER_KG) / 7;
 }
 
+/**
+ * 用戶要求「每週減 X kg」（例如 1 kg）：反推熱量，檢查安全，並永遠提醒估算唔係保證（需求 T25／B03）。
+ */
+export function weeklyGoalAdvice(a: {
+  tdee: number;
+  kgPerWeek: number;
+  sex: Sex;
+  senior: boolean;
+  review: Profile["risk_review"];
+}): { intakeKcal: number; deficitPct: number; allowed: boolean; messages: string[] } {
+  const raw = kcalForWeeklyLoss(a.tdee, a.kgPerWeek);
+  const ratio = (a.tdee - raw) / a.tdee;
+  const floor = MIN_CALORIES[a.sex];
+  const review = a.review ?? "not_assessed";
+  const messages = [
+    `每週 ${a.kgPerWeek} kg 只係按 7,700 kcal/kg 嘅粗略估算，唔係保證：水分、睡眠、經期同記錄誤差都會令實際數字唔同，要睇 2–3 星期趨勢。`,
+  ];
+  let allowed = true;
+  if (review === "needs_review") {
+    allowed = false;
+    messages.push("你嘅安全篩查顯示應該先同醫生或註冊營養師傾，所以唔提供呢個目標。");
+  }
+  if (raw < floor) {
+    allowed = false;
+    messages.push(`要做到呢個速度，每日只可以食約 ${Math.round(raw)} kcal，低過安全下限 ${floor} kcal，所以唔採用。可以考慮較慢嘅速度，或者向醫生／註冊營養師查詢。`);
+  }
+  if (a.senior && ratio > SENIOR.maxDeficitRatio + 1e-9) {
+    allowed = false;
+    messages.push("你屬 65 歲或以上，赤字上限係 15%。");
+  } else if (ratio > CAUTION_DEFICIT_RATIO + 1e-9 && review !== "clear") {
+    allowed = false;
+    messages.push("呢個赤字超過 25%，要先完成並通過安全小篩查。");
+  }
+  return { intakeKcal: Math.round(raw), deficitPct: Math.round(ratio * 1000) / 10, allowed, messages };
+}
+
 /** 某檔位係咪容許 */
-export function allowedPaces(opts: { senior: boolean; review: Profile["risk_review"]; bmi: number }): FixedPace[] {
+export function allowedPaces(opts: { senior: boolean; review: Profile["risk_review"] }): FixedPace[] {
   if (opts.senior) return ["gentle"];
   const out: FixedPace[] = ["gentle", "standard"];
-  if (opts.review === "clear" && opts.bmi >= MIN_BMI_FOR_FASTER) out.push("faster");
+  if (opts.review === "clear") out.push("faster");
   return out;
 }
 
-function whyNotFaster(opts: { review: Profile["risk_review"]; bmi: number }): string {
-  if (opts.review !== "clear") return "你未完成（或未通過）安全篩查";
-  if (opts.bmi < MIN_BMI_FOR_FASTER) return `你現時 BMI 低過 ${MIN_BMI_FOR_FASTER}`;
-  return "安全考慮";
-}
-
-export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult {
+export function computePlan({ profile, weightKg, today, signals }: PlanInput): PlanResult {
   const age = ageOn(profile.birth_date, today);
+  if (!Number.isFinite(age) || !isValidDateStr(profile.birth_date)) {
+    return { ok: false, reason: "出生日期唔正確，請重新輸入。" };
+  }
   if (age < MIN_AGE) {
     return { ok: false, reason: `呢個 app 只供 ${MIN_AGE} 歲或以上使用。` };
   }
@@ -261,9 +363,11 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
     return { ok: false, reason: "請先填寫日常活動量（平均每日步數），先計到每日熱量。" };
   }
 
-  const tdee = bmr * act.factor + act.exerciseKcal;
-  const tdeeLow = bmr * act.factorLow + act.exerciseKcalLow;
-  const tdeeHigh = bmr * act.factorHigh + act.exerciseKcalHigh;
+  // 體重趨勢校準調整（逐步、有上限；冇校準 = 0）
+  const adjust = Math.max(-MAX_TDEE_ADJUST, Math.min(MAX_TDEE_ADJUST, Math.round(profile.tdee_adjust_kcal ?? 0)));
+  const tdee = bmr * act.factor + act.exerciseKcal + adjust;
+  const tdeeLow = bmr * act.factorLow + act.exerciseKcalLow + adjust;
+  const tdeeHigh = bmr * act.factorHigh + act.exerciseKcalHigh + adjust;
   const tdeeR = Math.round(tdee);
 
   const notes: string[] = [];
@@ -295,8 +399,9 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
           : `你現時 BMI 低過 ${MIN_CURRENT_BMI_TO_LOSE}，唔建議減脂，只顯示維持體重嘅熱量。`,
       );
     } else {
-      const maxRatio = senior ? SENIOR.maxDeficitRatio : MAX_DEFICIT_RATIO;
-      const allowed = allowedPaces({ senior, review, bmi });
+      // 唔設百分比硬上限（只有 65+ 15%）；真正嘅限制係 calories 下限、篩查、同 > 25% 要通過篩查
+      const maxRatio = senior ? SENIOR.maxDeficitRatio : null;
+      const allowed = allowedPaces({ senior, review });
       const best = (limit: FixedPace): FixedPace => {
         const idx = PACE_ORDER.indexOf(limit);
         for (let i = idx; i >= 0; i--) if (allowed.includes(PACE_ORDER[i])) return PACE_ORDER[i];
@@ -317,38 +422,38 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
         } else if (!(dr > 0)) {
           status = "blocked";
           warnings.push(`你自訂嘅 ${Math.round(c)} kcal 唔低過每日消耗（約 ${tdeeR} kcal），唔係赤字，冇被採用。`);
-        } else if (dr > maxRatio + 1e-9) {
+        } else if (maxRatio !== null && dr > maxRatio + 1e-9) {
           status = "blocked";
           warnings.push(
-            `你自訂嘅 ${Math.round(c)} kcal 會造成約 ${Math.round(dr * 1000) / 10}% 赤字，超過上限 ${Math.round(maxRatio * 100)}%，冇被採用。`,
+            `你自訂嘅 ${Math.round(c)} kcal 會造成約 ${Math.round(dr * 1000) / 10}% 赤字，超過 65 歲或以上嘅上限 ${Math.round(maxRatio * 100)}%，冇被採用。`,
+          );
+        } else if (dr > CAUTION_DEFICIT_RATIO + 1e-9 && review !== "clear") {
+          status = "blocked";
+          warnings.push(
+            `你自訂嘅 ${Math.round(c)} kcal 會造成約 ${Math.round(dr * 1000) / 10}% 赤字（超過 25%）。要先完成並通過安全小篩查，先可以用呢個幅度，所以冇被採用。`,
           );
         } else {
           customTarget = c;
           pace = "custom";
           ratio = dr;
-          if (dr > FAST_WARN_RATIO) warnings.push("赤字超過 20%，屬於進取做法，請留意精神、睡眠同訓練表現；有不適就停。");
         }
         if (customTarget === null) {
           pace = best("standard");
           ratio = PACE_RATIO[pace];
-          warnings.push(`暫時改用「${PACE_LABEL[pace]}」檔位（${Math.round(ratio * 1000) / 10}% 赤字）作後備，你可以重新揀。`);
+          warnings.push(
+            `暫時改用「${PACE_LABEL[pace]}」檔位（約 ${Math.round(tdee * (1 - ratio))} kcal／日，赤字 ${Math.round(ratio * 1000) / 10}%）作後備，你可以重新揀。想要更大幅度，請同醫生或註冊營養師傾。`,
+          );
         }
       } else {
         const req = paceRequested;
         const applied = best(req);
         if (applied !== req) {
           status = "capped";
-          const why =
-            senior
-              ? "你屬 65 歲或以上，赤字上限係 15%"
-              : req === "faster"
-                ? whyNotFaster({ review, bmi })
-                : "安全考慮";
+          const why = senior ? "你屬 65 歲或以上，赤字上限係 15%" : "你未完成（或未通過）安全篩查";
           warnings.push(`你揀咗「${PACE_LABEL[req]}」，但因為${why}，改用「${PACE_LABEL[applied]}」。`);
         }
         pace = applied;
         ratio = PACE_RATIO[applied];
-        if (applied === "faster") warnings.push("「進取」檔位赤字 20–25%，只適合短時間，請留意精神、睡眠同訓練表現；有不適就停。");
       }
 
       target = customTarget ?? tdee * (1 - (ratio ?? 0));
@@ -409,12 +514,31 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
   const rangeB = weeklyKg(targetCalories - Math.round(tdeeLow));
   const weeklyRateRangeKg: [number, number] = [Math.min(rangeA, rangeB), Math.max(rangeA, rangeB)];
   const deficitRatio = (profile.goal === "lose" || profile.goal === "recomp") && dailyDeltaKcal < 0 ? Math.round((-dailyDeltaKcal / tdeeR) * 1000) / 1000 : 0;
+  const deficitTier: Plan["deficitTier"] = tierOf(deficitRatio);
 
-  // 蛋白質：記錄用咗邊個體重做基準
-  const useTarget =
-    profile.goal === "lose" && bmi >= PROTEIN_TARGET_BASIS_BMI && typeof profile.target_weight_kg === "number" && profile.target_weight_kg > 0;
-  const basisKg = useTarget ? (profile.target_weight_kg as number) : weightKg;
-  const prot = senior ? { def: SENIOR.proteinGPerKg, min: SENIOR.proteinGPerKg } : PROTEIN_RANGE[profile.goal];
+  // 赤字分級提醒（只係提醒，唔係診斷）
+  if (profile.goal === "lose" && status !== "requires_review") {
+    const pct = Math.round(deficitRatio * 1000) / 10;
+    if (deficitTier === "progressive") {
+      warnings.push(`赤字約 ${pct}%，屬於較進取。留意飢餓、疲倦、睡眠同訓練表現，並以 2–3 星期嘅體重趨勢為準；有不適就加返攝取。`);
+    } else if (deficitTier === "caution") {
+      warnings.push(
+        `赤字約 ${pct}%，超過 25%，屬於審慎區：只適合短期、要監察精神、睡眠、飢餓同訓練表現。有頭暈、極度疲倦或飲食失控，請加返攝取並向醫生或註冊營養師查詢。`,
+      );
+    }
+  }
+
+  // 蛋白質：永遠按現時體重計並記錄基準；篩查要專業評估嗰陣唔預設高蛋白（例如腎病／限蛋白）
+  const basisKg = weightKg;
+  const reviewProtein = review === "needs_review";
+  const prot = reviewProtein
+    ? { def: REVIEW_PROTEIN_G_PER_KG, min: REVIEW_PROTEIN_G_PER_KG }
+    : senior
+      ? { def: SENIOR.proteinGPerKg, min: SENIOR.proteinGPerKg }
+      : PROTEIN_RANGE[profile.goal];
+  if (reviewProtein) {
+    notes.push(`蛋白質暫時用一般成人 ${REVIEW_PROTEIN_G_PER_KG} g/kg，唔預設高蛋白；請由醫生或註冊營養師按你嘅情況決定。`);
+  }
   const m = allocateMacros({
     targetKcal: targetCalories,
     basisWeightKg: basisKg,
@@ -423,6 +547,22 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
     fatRatio: FAT_CALORIE_RATIO,
   });
   for (const n of m.notes) notes.push(n);
+  const mk = macroKcal(m.proteinG, m.carbsG, m.fatG);
+
+  // 校準狀態：只由體重趨勢／記錄決定；單靠問卷永遠係「未校準」
+  const calibrationStatus: CalibrationStatus = profile.calibrated_at
+    ? "initially_calibrated"
+    : signals && signals.weightSpanDays >= 13 && signals.weightCount >= 8
+      ? "trend_only"
+      : "uncalibrated";
+  const calSuffix =
+    calibrationStatus === "initially_calibrated"
+      ? "（已按近期記錄初步校準）"
+      : calibrationStatus === "trend_only"
+        ? "（已有體重趨勢，仍未用食物記錄校準）"
+        : "（尚未校準）";
+  const scenarioDescription =
+    (act.source === "legacy_level" ? "舊版單一活動級別" : act.stepsRange ? ACTIVITY_DESC[act.stepsRange] : ACTIVITY_DESC.unknown) + calSuffix;
   if (!m.ok) warnings.push("目標熱量太低，配唔到合理嘅營養素組合，請同專業人士傾。");
 
   return {
@@ -435,8 +575,17 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
       tdee: tdeeR,
       tdeeLow: Math.round(tdeeLow),
       tdeeHigh: Math.round(tdeeHigh),
-      confidence: act.confidence,
-      activitySource: act.source,
+      dataQuality: act.dataQuality,
+      calibrationStatus,
+      tdeeAdjustKcal: adjust,
+      calibratedAt: profile.calibrated_at ?? null,
+      scenarioDescription,
+      estimated: true,
+      weeklyEstimateMethod: "static_7700_heuristic",
+      macroKcal: mk,
+      kcalRoundingDelta: mk - targetCalories,
+      deficitTier,
+      activitySource: adjust !== 0 || profile.calibrated_at ? "trend_calibrated" : act.source,
       activityFactor: act.factor,
       activityFactorLow: act.factorLow,
       activityFactorHigh: act.factorHigh,
@@ -454,7 +603,7 @@ export function computePlan({ profile, weightKg, today }: PlanInput): PlanResult
       macros: { proteinG: m.proteinG, fatG: m.fatG, carbsG: m.carbsG },
       proteinPerKg: m.proteinPerKg,
       proteinBasisKg: basisKg,
-      proteinBasis: useTarget ? "target" : "current",
+      proteinBasis: "current",
       notes,
       warnings,
       formulaVersion: FORMULA_VERSION,
@@ -476,11 +625,10 @@ export function previewPaces(input: PlanInput): PacePreview[] | null {
   if (input.profile.goal !== "lose") return null;
   const base = computePlan(input);
   if (!base.ok) return null;
-  const bmi = calcBmi(input.weightKg, input.profile.height_cm);
   const blocked = base.plan.status === "requires_review";
   const allowed = blocked
     ? []
-    : allowedPaces({ senior: base.plan.senior, review: input.profile.risk_review ?? "not_assessed", bmi });
+    : allowedPaces({ senior: base.plan.senior, review: input.profile.risk_review ?? "not_assessed" });
   const out: PacePreview[] = [];
   for (const p of PACE_ORDER) {
     if (allowed.includes(p)) {

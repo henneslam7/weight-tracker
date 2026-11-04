@@ -9,11 +9,13 @@ import {
   clampRate,
   isSenior,
   KCAL_PER_KG,
-  MAX_DEFICIT_RATIO,
   MIN_CALORIES,
   SENIOR,
 } from "./calc.ts";
 import type { Profile } from "./types.ts";
+
+/** 舊版（v1）嘅硬上限 */
+const LEGACY_MAX_DEFICIT_RATIO = 0.25;
 
 export interface LegacyNumbers {
   tdee: number;
@@ -31,7 +33,7 @@ export function legacyNumbers(profile: Profile, weightKg: number, today: string)
   let target = tdee;
   if (profile.goal === "lose") {
     const rate = clampRate("lose", profile.weekly_rate_kg, age);
-    const cap = tdee * (senior ? SENIOR.maxDeficitRatio : MAX_DEFICIT_RATIO);
+    const cap = tdee * (senior ? SENIOR.maxDeficitRatio : LEGACY_MAX_DEFICIT_RATIO);
     target = tdee - Math.min((rate * KCAL_PER_KG) / 7, cap);
   } else if (profile.goal === "gain") {
     target = tdee + (clampRate("gain", profile.weekly_rate_kg) * KCAL_PER_KG) / 7;

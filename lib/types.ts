@@ -17,6 +17,8 @@ export type StepSource = "device" | "manual" | "estimate";
 export type StepCoverage = "high" | "medium" | "low";
 export type Pace = "gentle" | "standard" | "faster" | "custom";
 export type FixedPaceLike = Exclude<Pace, "custom">;
+/** TDEE 校準狀態：只由體重趨勢／食物記錄決定，單靠問卷永遠係 uncalibrated */
+export type CalibrationStatus = "uncalibrated" | "trend_only" | "initially_calibrated";
 /** 安全篩查結果：clear = 已答、冇風險；needs_review = 有風險，要專業評估；not_assessed = 未答／唔想答（唔當安全） */
 export type RiskReview = "clear" | "needs_review" | "not_assessed";
 
@@ -44,6 +46,9 @@ export interface Profile {
   custom_kcal?: number | null;
   risk_review?: RiskReview | null;
   formula_version?: string | null;
+  /** 按體重趨勢校準而加減嘅每日 kcal（−300…+300），冇校準 = 0／null */
+  tdee_adjust_kcal?: number | null;
+  calibrated_at?: string | null;
 }
 
 export interface WeightLog {

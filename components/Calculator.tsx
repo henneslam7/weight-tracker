@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { FORMULA_VERSION, PACE_LABEL, previewPaces, type Plan } from "@/lib/calc";
-import { confidenceText, explainPlan, missingText, weeklyText } from "@/lib/explain";
+import type { CalibrationResult } from "@/lib/calibration";
+import { calibrationText, explainPlan, missingText, weeklyText } from "@/lib/explain";
 import { etaLines, etaToTarget } from "@/lib/eta";
 import { legacyNumbers } from "@/lib/legacy";
 import { isMissingColumn, rateFromPace } from "@/lib/profile-save";
@@ -18,6 +19,8 @@ interface Props {
   planError: string | null;
   /** 每週體重趨勢（kg/週，負數 = 下降）；未有 = null */
   trendKgPerWeek: number | null;
+  /** 體重趨勢校準結果（建議）；null = 未有計劃 */
+  calibration: CalibrationResult | null;
   weightKg: number | null;
   onEditProfile: () => void;
   onLogout: () => void;
@@ -48,6 +51,7 @@ export default function Calculator({
   plan,
   planError,
   trendKgPerWeek,
+  calibration,
   weightKg,
   onEditProfile,
   onLogout,
@@ -75,7 +79,7 @@ export default function Calculator({
     if (!plan || weightKg === null) return [];
     const today = toDateStr();
     return etaLines(
-      etaToTarget({ goal: profile.goal, weightKg, targetKg: profile.target_weight_kg, trendKgPerWeek, planKgPerWeek: plan.weeklyRateKg, today }),
+      etaToTarget({ goal: profile.goal, weightKg, targetKg: profile.target_weight_kg, trendKgPerWeek, tdee: plan.tdee, intakeKcal: plan.targetCalories, today }),
       today,
     );
   }, [plan, weightKg, profile.goal, profile.target_weight_kg, trendKgPerWeek]);
@@ -106,6 +110,9 @@ export default function Calculator({
       { weekly_rate_kg: rateFromPace(p), updated_at: new Date().toISOString() },
     );
   const ackFormula = () => patch({ formula_version: FORMULA_VERSION });
+  const applyCalibration = (adjust: number) =>
+    patch({ tdee_adjust_kcal: adjust, calibrated_at: new Date().toISOString(), formula_version: FORMULA_VERSION });
+  const resetCalibration = () => patch({ tdee_adjust_kcal: 0, calibrated_at: null });
 
   return (
     <div className="space-y-4">
@@ -122,9 +129,9 @@ export default function Calculator({
               <Row k="蛋白質（舊 → 新）" v={`${old.proteinG} → ${plan.macros.proteinG} g`} />
             </div>
           )}
-          {plan.confidence === "low" && (
+          {plan.missing.length > 0 && (
             <p className={infoBox}>
-              你仲未填步數同工作性質，所以新估算信心偏低。
+              你仲未填步數同工作性質，所以新估算只係初步（未校準）。
               <button className="ml-1 font-bold underline" onClick={onEditProfile}>補充資料</button>
             </p>
           )}
@@ -145,11 +152,17 @@ export default function Calculator({
         )}
         {plan && (
           <>
-            {STATUS_TEXT[plan.status] && (
-              <p className="mt-1 inline-block rounded-full bg-amber-100 px-3 py-0.5 text-xs font-bold text-amber-900">
-                {STATUS_TEXT[plan.status]}
-              </p>
-            )}
+            <div className="mt-1 flex flex-wrap gap-2">
+              {STATUS_TEXT[plan.status] && (
+                <span className="rounded-full bg-amber-100 px-3 py-0.5 text-xs font-bold text-amber-900">{STATUS_TEXT[plan.status]}</span>
+              )}
+              {plan.deficitTier === "progressive" && (
+                <span className="rounded-full bg-amber-100 px-3 py-0.5 text-xs font-bold text-amber-900">較進取</span>
+              )}
+              {plan.deficitTier === "caution" && (
+                <span className="rounded-full bg-red-100 px-3 py-0.5 text-xs font-bold text-red-800">審慎區（赤字 &gt; 25%）</span>
+              )}
+            </div>
             <div className="my-3 text-center">
               <div className="text-4xl font-bold text-teal-700">
                 {plan.targetCalories}
@@ -171,8 +184,9 @@ export default function Calculator({
             <div className="mt-3 divide-y divide-slate-100 text-sm">
               <Row k="BMR（基礎代謝）" v={`${plan.bmr} kcal`} />
               <Row k="TDEE（每日總消耗，估算）" v={`約 ${plan.tdee} kcal`} />
-              <Row k="合理範圍" v={`${plan.tdeeLow}–${plan.tdeeHigh} kcal`} />
-              <Row k="估算信心" v={confidenceText(plan.confidence)} />
+              <Row k="活動假設" v={plan.scenarioDescription} />
+              <Row k="估算情境（唔同活動假設）" v={`${plan.tdeeLow}–${plan.tdeeHigh} kcal`} />
+              <Row k="校準狀態" v={calibrationText(plan).label} />
               <Row
                 k={plan.dailyDeltaKcal <= 0 ? "每日赤字" : "每日盈餘"}
                 v={`${Math.abs(plan.dailyDeltaKcal)} kcal${plan.deficitRatio > 0 ? `（約 ${Math.round(plan.deficitRatio * 1000) / 10}%）` : ""}`}
@@ -181,6 +195,10 @@ export default function Calculator({
                 <Row k="預計每週變化" v={weeklyText(plan.weeklyRateKg)} />
               )}
             </div>
+
+            <p className="mt-3 text-xs text-slate-500">
+              註：TDEE 並非實際測量值。連續記錄 2–3 星期後，可根據體重趨勢及飲食紀錄調整估算。每週體重變化只係粗略估算（赤字 × 7 ÷ 7,700）。
+            </p>
 
             {etaTexts.length > 0 && (
               <div className="mt-3 space-y-1 rounded-xl bg-teal-50 p-3 text-sm text-teal-900">
@@ -225,6 +243,36 @@ export default function Calculator({
           </>
         )}
       </section>
+
+      {plan && calibration && (
+        <section className={`${card} space-y-2`}>
+          <h2 className="font-semibold">按體重趨勢校準</h2>
+          <p className="text-sm text-slate-600">
+            {calibrationText(plan).label}：{calibrationText(plan).note}
+            {plan.calibratedAt ? `（上次校準 ${plan.calibratedAt.slice(0, 10)}）` : ""}
+          </p>
+          <p className={calibration.status === "ok" ? "rounded-xl bg-teal-50 p-3 text-sm text-teal-900" : infoBox}>{calibration.message}</p>
+          {calibration.status === "ok" && (
+            <div className="divide-y divide-slate-100 rounded-xl bg-slate-50 px-3 text-sm">
+              <Row k="近兩個窗口平均體重" v={`${calibration.avgWeightOld} → ${calibration.avgWeightNew} kg`} />
+              <Row k="平均每日攝取（完整記錄日）" v={`${calibration.avgIntake} kcal`} />
+              <Row k="由記錄反推嘅每日消耗" v={`約 ${calibration.observedTdee} kcal`} />
+              {calibration.outliersExcluded > 0 && <Row k="已排除異常磅重" v={`${calibration.outliersExcluded} 次`} />}
+            </div>
+          )}
+          {calibration.status === "ok" && calibration.stepKcal !== 0 && (
+            <button className={btnGhost} disabled={busy} onClick={() => void applyCalibration(calibration.newAdjustKcal)}>
+              採用：每日消耗估算{calibration.stepKcal > 0 ? "加" : "減"} {Math.abs(calibration.stepKcal)} kcal
+            </button>
+          )}
+          {plan.tdeeAdjustKcal !== 0 && (
+            <button className="text-sm font-bold text-teal-700 underline" disabled={busy} onClick={() => void resetCalibration()}>
+              重設校準（取消 {plan.tdeeAdjustKcal > 0 ? "+" : ""}{plan.tdeeAdjustKcal} kcal）
+            </button>
+          )}
+          <p className="text-xs text-slate-500">逐步調整（每次最多 ±150 kcal，累計最多 ±300）、排除單日異常磅重、每 2–3 星期先校準一次。呢啲係產品啟發式，唔係臨床處方。</p>
+        </section>
+      )}
 
       {plan && previews && plan.status !== "requires_review" && (
         <section className={`${card} space-y-2`}>

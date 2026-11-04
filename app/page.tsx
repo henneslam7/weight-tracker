@@ -13,6 +13,7 @@ import Today from "@/components/Today";
 import Weight from "@/components/Weight";
 import { dayBudget } from "@/lib/budget";
 import { ageOn, computePlan, weeklyTrendKg } from "@/lib/calc";
+import { calibrateTdee, weightSignals, type IntakeDay } from "@/lib/calibration";
 import { LOADING_TEXT } from "@/lib/copy";
 import { addDays, diffDays, toDateStr } from "@/lib/date";
 import { sumBurned } from "@/lib/exercise";
@@ -163,8 +164,8 @@ export default function Home() {
 
   const planResult = useMemo(() => {
     if (!profile || !latest) return null;
-    return computePlan({ profile, weightKg: latest.weight_kg, today: toDateStr() });
-  }, [profile, latest]);
+    return computePlan({ profile, weightKg: latest.weight_kg, today: toDateStr(), signals: weightSignals(logs, toDateStr()) });
+  }, [profile, latest, logs]);
   const basePlan = planResult?.ok ? planResult.plan : null;
   const planError = planResult && !planResult.ok ? planResult.reason : null;
 
@@ -189,6 +190,27 @@ export default function Home() {
       burnedByDate,
     };
   }, [logs, foodHistory, moveHistory]);
+
+  // 按體重趨勢校準（建議）：近 21 日；三餐齊先當「完整記錄」
+  const calibration = useMemo(() => {
+    if (!basePlan || !profile) return null;
+    const intake: IntakeDay[] = [];
+    for (let i = 0; i < 21; i++) {
+      const d = addDays(today, -i);
+      const kcal = history.kcalByDate?.get(d);
+      if (kcal === undefined) continue;
+      const meals = history.mealsByDate.get(d);
+      intake.push({ date: d, kcal, complete: !!meals && meals.has("breakfast") && meals.has("lunch") && meals.has("dinner") });
+    }
+    return calibrateTdee({
+      currentTdee: basePlan.tdee,
+      currentAdjustKcal: basePlan.tdeeAdjustKcal,
+      weights: logs,
+      intake,
+      today,
+      lastCalibratedAt: profile.calibrated_at ?? null,
+    });
+  }, [basePlan, profile, history, logs, today]);
 
   // 印花（要三樣齊 ＋ 食量唔超上限）同放縱日。放縱日當日，全 app 用加咗額外 kcal 嘅計劃。
   const stamps = useMemo(
@@ -308,6 +330,7 @@ export default function Home() {
           profile={profile}
           plan={basePlan}
           trendKgPerWeek={weeklyTrendKg(logs)}
+          calibration={calibration}
           planError={planError}
           weightKg={latest?.weight_kg ?? null}
           onEditProfile={() => setEditing(true)}

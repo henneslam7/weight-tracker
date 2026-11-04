@@ -89,7 +89,9 @@ export default function Today({
         weightKg: latest.weight_kg,
         targetKg: profile.target_weight_kg,
         trendKgPerWeek: trend,
-        planKgPerWeek: plan ? plan.weeklyRateKg : null,
+        tdee: plan ? plan.tdee : null,
+        // 放縱日當日嘅上限唔係日常目標，扣返額外部分先算
+        intakeKcal: plan ? plan.targetCalories - (plan.cheatExtraKcal ?? 0) : null,
         today,
       })
     : null;
