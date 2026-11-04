@@ -7,10 +7,15 @@ import { DEFAULT_IMAGE_TEXT, IMAGE_RULES, SYSTEM_PROMPT, wrapUserText } from "./
 import { roastPrompt, withRoastSchema, type RoastRequest } from "./roastai.ts";
 import { RESPONSE_SCHEMA } from "./schema.ts";
 
+/** Gemini 3 系列用 thinkingLevel（唔支援 minimal）。"default" = 唔送，用 model 預設 */
+export type ThinkingLevel = "low" | "medium" | "high";
+
 export interface GeminiConfig {
   apiKey: string;
   model: string;
   timeoutMs?: number;
+  /** 冇設 = 唔送（model 預設，通常 medium，思考 token 最貴） */
+  thinkingLevel?: ThinkingLevel | null;
 }
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -20,7 +25,25 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): GeminiConfig {
   const model = env.GEMINI_MODEL;
   if (!apiKey || !model) throw new AiError("config", "AI 未設定（缺少 GEMINI_API_KEY 或 GEMINI_MODEL）");
   if (!/^[A-Za-z0-9._-]+$/.test(model)) throw new AiError("config", "GEMINI_MODEL 格式唔啱");
-  return { apiKey, model };
+  return { apiKey, model, thinkingLevel: readThinkingLevel(env.GEMINI_THINKING_LEVEL) };
+}
+
+/**
+ * GEMINI_THINKING_LEVEL：low（預設）/ medium / high；"default" 或 "off" = 唔送，用 model 預設。
+ * 食物估算同食咩好係結構化任務，low 通常夠，思考 token 同 output 一樣價錢。
+ */
+export function readThinkingLevel(v: string | undefined): ThinkingLevel | null {
+  const x = (v ?? "").trim().toLowerCase();
+  if (x === "" ) return "low";
+  if (x === "low" || x === "medium" || x === "high") return x;
+  return null;
+}
+
+/** 將 thinkingConfig 放入 request body（唔改原 body） */
+export function applyThinking(body: unknown, level: ThinkingLevel | null | undefined): unknown {
+  if (!level || typeof body !== "object" || body === null) return body;
+  const b = body as { generationConfig?: Record<string, unknown> };
+  return { ...b, generationConfig: { ...b.generationConfig, thinkingConfig: { thinkingLevel: level } } };
 }
 
 export type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
@@ -99,20 +122,29 @@ export async function generateJson(
   body: unknown,
   fetchImpl: typeof fetch = fetch,
 ): Promise<unknown> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 25_000);
-  let res: Response;
-  try {
-    res = await fetchImpl(`${BASE}/${cfg.model}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch {
-    throw new AiError("upstream", "AI 連線失敗或逾時");
-  } finally {
-    clearTimeout(timer);
+  const post = async (b: unknown): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 25_000);
+    try {
+      return await fetchImpl(`${BASE}/${cfg.model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey },
+        body: JSON.stringify(b),
+        signal: controller.signal,
+      });
+    } catch {
+      throw new AiError("upstream", "AI 連線失敗或逾時");
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const sent = applyThinking(body, cfg.thinkingLevel);
+  let res = await post(sent);
+  // 如果 model 唔接受 thinkingConfig（400），去掉再試一次，唔好令 AI 功能壞咗
+  if (res.status === 400 && sent !== body) {
+    console.error("[ai] gemini 400 with thinkingConfig; retrying without it");
+    res = await post(body);
   }
 
   if (!res.ok) {

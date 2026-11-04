@@ -1,7 +1,7 @@
 // npm run test:ai（唔會真係 call Gemini，用 fake fetch）
 import assert from "node:assert/strict";
 import { AiError } from "../lib/ai/errors.ts";
-import { buildRequestBody, callGemini, readConfig } from "../lib/ai/gemini.ts";
+import { applyThinking, buildRequestBody, callGemini, readConfig, readThinkingLevel } from "../lib/ai/gemini.ts";
 import { usageLine } from "../lib/ai/gemini.ts";
 import { estimateFoodWithRoast } from "../lib/ai/index.ts";
 import { MAX_IMAGE_BYTES, validateImage } from "../lib/ai/image.ts";
@@ -265,6 +265,50 @@ await test("estimateFoodWithRoast：唔安全 → fallback；冇食物 → none�
   assert.equal((await estimateFoodWithRoast("x", { tone: "neighbour", remainingKcal: 500 }, cfg2, fakeWith({ items: [goodItem], roast_who: "chan", roast: "" }))).roast.state, "none");
 });
 
+
+console.log("thinking（慳 token）");
+await test("GEMINI_THINKING_LEVEL：預設 low；low/medium/high；default/off/亂打 = 唔送", async () => {
+  assert.equal(readThinkingLevel(undefined), "low");
+  assert.equal(readThinkingLevel(""), "low");
+  assert.equal(readThinkingLevel(" HIGH "), "high");
+  assert.equal(readThinkingLevel("medium"), "medium");
+  assert.equal(readThinkingLevel("default"), null);
+  assert.equal(readThinkingLevel("off"), null);
+  assert.equal(readThinkingLevel("minimal"), null); // gemini-3.8-flash 唔支援 minimal（400）
+  assert.equal(readConfig({ GEMINI_API_KEY: "k", GEMINI_MODEL: "m" } as unknown as NodeJS.ProcessEnv).thinkingLevel, "low");
+});
+await test("applyThinking：加 thinkingConfig、唔改原 body、保留其他 generationConfig", async () => {
+  const body = buildRequestBody("x") as { generationConfig: Record<string, unknown> };
+  const out = applyThinking(body, "low") as { generationConfig: Record<string, unknown> };
+  assert.deepEqual(out.generationConfig.thinkingConfig, { thinkingLevel: "low" });
+  assert.equal(out.generationConfig.responseMimeType, "application/json");
+  assert.ok(!("thinkingConfig" in body.generationConfig));
+  assert.equal(applyThinking(body, null), body);
+});
+await test("callGemini 送 thinkingLevel；model 400 就去掉再試一次", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const fake = (async (_u: string | URL | Request, init?: RequestInit) => {
+    const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    bodies.push(b);
+    const gc = b.generationConfig as Record<string, unknown>;
+    if ("thinkingConfig" in gc) return new Response(JSON.stringify({ error: { status: "INVALID_ARGUMENT" } }), { status: 400 });
+    return okBody(JSON.stringify({ items: [] }));
+  }) as typeof fetch;
+  const silence = console.error;
+  console.error = () => {};
+  try {
+    assert.deepEqual(await callGemini({ ...cfg, thinkingLevel: "low" }, "x", fake), { items: [] });
+  } finally {
+    console.error = silence;
+  }
+  assert.equal(bodies.length, 2);
+  assert.deepEqual((bodies[0].generationConfig as Record<string, unknown>).thinkingConfig, { thinkingLevel: "low" });
+  assert.ok(!("thinkingConfig" in (bodies[1].generationConfig as Record<string, unknown>)));
+  // 冇設 thinkingLevel：只送一次，400 照樣係 config 錯
+  bodies.length = 0;
+  const always400 = (async () => new Response(JSON.stringify({ error: { status: "X" } }), { status: 400 })) as unknown as typeof fetch;
+  await rejects(callGemini(cfg, "x", always400), "config");
+});
 
 console.log("usage（成本對數）");
 await test("usageLine：只輸出 token 數字（含 thinking），冇內容；缺欄位當 0", () => {
