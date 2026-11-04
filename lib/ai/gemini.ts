@@ -29,12 +29,12 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): GeminiConfig {
 }
 
 /**
- * GEMINI_THINKING_LEVEL：low（預設）/ medium / high；"default" 或 "off" = 唔送，用 model 預設。
- * 食物估算同食咩好係結構化任務，low 通常夠，思考 token 同 output 一樣價錢。
+ * GEMINI_THINKING_LEVEL：medium（預設）/ low / high；"default" 或 "off" = 唔送，用 model 預設。
+ * 思考 token 同 output 一樣價錢；想再慳就設 low。
  */
 export function readThinkingLevel(v: string | undefined): ThinkingLevel | null {
   const x = (v ?? "").trim().toLowerCase();
-  if (x === "" ) return "low";
+  if (x === "") return "medium";
   if (x === "low" || x === "medium" || x === "high") return x;
   return null;
 }

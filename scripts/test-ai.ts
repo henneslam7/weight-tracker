@@ -267,15 +267,16 @@ await test("estimateFoodWithRoast：唔安全 → fallback；冇食物 → none�
 
 
 console.log("thinking（慳 token）");
-await test("GEMINI_THINKING_LEVEL：預設 low；low/medium/high；default/off/亂打 = 唔送", async () => {
-  assert.equal(readThinkingLevel(undefined), "low");
-  assert.equal(readThinkingLevel(""), "low");
+await test("GEMINI_THINKING_LEVEL：預設 medium；low/medium/high；default/off/亂打 = 唔送", async () => {
+  assert.equal(readThinkingLevel(undefined), "medium");
+  assert.equal(readThinkingLevel(""), "medium");
+  assert.equal(readThinkingLevel("low"), "low");
   assert.equal(readThinkingLevel(" HIGH "), "high");
   assert.equal(readThinkingLevel("medium"), "medium");
   assert.equal(readThinkingLevel("default"), null);
   assert.equal(readThinkingLevel("off"), null);
   assert.equal(readThinkingLevel("minimal"), null); // gemini-3.8-flash 唔支援 minimal（400）
-  assert.equal(readConfig({ GEMINI_API_KEY: "k", GEMINI_MODEL: "m" } as unknown as NodeJS.ProcessEnv).thinkingLevel, "low");
+  assert.equal(readConfig({ GEMINI_API_KEY: "k", GEMINI_MODEL: "m" } as unknown as NodeJS.ProcessEnv).thinkingLevel, "medium");
 });
 await test("applyThinking：加 thinkingConfig、唔改原 body、保留其他 generationConfig", async () => {
   const body = buildRequestBody("x") as { generationConfig: Record<string, unknown> };
