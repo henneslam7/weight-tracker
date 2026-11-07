@@ -10,6 +10,7 @@ import { getSupabase } from "@/lib/supabase";
 import { effectiveTone, roastAllowed, type SensitiveReason } from "@/lib/persona";
 import type { FoodLog, MealType, UserPrefs } from "@/lib/types";
 import FoodAdd from "./FoodAdd";
+import FoodEdit from "./FoodEdit";
 import IntakeProgress from "./IntakeProgress";
 import MealSuggest from "./MealSuggest";
 import { btnPrimary, card, DISCLAIMER, errorBox } from "./ui";
@@ -36,6 +37,7 @@ export default function Food({ userId, plan, initialMeal, prefs, reason, remaini
   const [meal, setMeal] = useState<MealType>(initialMeal ?? defaultMealType(new Date().getHours()));
   const [adding, setAdding] = useState(initialMeal !== null);
   const [suggestSignal, setSuggestSignal] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -176,7 +178,19 @@ export default function Food({ userId, plan, initialMeal, prefs, reason, remaini
                     <span className="font-normal text-slate-500">{sub.calories} kcal</span>
                   </div>
                   <ul className="divide-y divide-slate-100">
-                    {items.map((l) => (
+                    {items.map((l) =>
+                      editingId === l.id ? (
+                        <FoodEdit
+                          key={l.id}
+                          item={l}
+                          onCancel={() => setEditingId(null)}
+                          onSaved={() => {
+                            setEditingId(null);
+                            void load();
+                            onChanged();
+                          }}
+                        />
+                      ) : (
                       <li key={l.id} className="flex items-center justify-between gap-2 py-2">
                         <div className="min-w-0">
                           <div className="truncate">
@@ -192,6 +206,13 @@ export default function Food({ userId, plan, initialMeal, prefs, reason, remaini
                         <div className="flex shrink-0 items-center gap-3">
                           <span className="font-medium">{l.calories}</span>
                           <button
+                            onClick={() => setEditingId(l.id)}
+                            className="text-sm font-semibold text-teal-700 underline"
+                            aria-label={`編輯 ${l.name}`}
+                          >
+                            編輯
+                          </button>
+                          <button
                             onClick={() => void remove(l.id)}
                             className="text-sm text-slate-400 underline"
                             aria-label={`刪除 ${l.name}`}
@@ -200,7 +221,8 @@ export default function Food({ userId, plan, initialMeal, prefs, reason, remaini
                           </button>
                         </div>
                       </li>
-                    ))}
+                      ),
+                    )}
                   </ul>
                 </div>
               );
