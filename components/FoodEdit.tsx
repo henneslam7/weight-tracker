@@ -91,7 +91,7 @@ export default function FoodEdit({ item, onSaved, onCancel }: Props) {
       </div>
       {Math.abs(gap) > 100 && (
         <p className={infoBox}>
-          營養素加埋約 {Math.round(Number(f.calories) + gap)} kcal，同你填嘅 {f.calories} kcal 差 {Math.abs(gap)} kcal。可能有一邊填錯，不過你想照儲存都得。
+          營養素加埋約 {Math.round(Number(f.calories) + gap)} kcal，同你填嘅 {f.calories} kcal 差 {Math.abs(gap)} kcal。可能有一邊填錯，你想照儲存都得。
         </p>
       )}
       {item.source === "ai" && <p className="text-xs text-slate-500">呢項原本係 AI 估算。改咗 calories 或營養素之後，會當係你自己確認嘅數字。</p>}
