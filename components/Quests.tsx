@@ -20,6 +20,8 @@ interface Props {
   onChanged: () => void;
 }
 
+const UPGRADE_MSG = "資料庫未升級，改唔到放縱日券。請喺 Supabase SQL Editor 執行 supabase/schema_cheat.sql 一次，再試。";
+
 function Row({ done, children, action }: { done: boolean; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 border-b border-stone-100 py-3.5 last:border-0">
@@ -66,9 +68,10 @@ export default function Quests({ userId, day, stamps, stampTotal, cheatExtra, ch
   async function useCredit(id: string, date: string) {
     setBusy(true);
     setError(null);
-    const { error } = await getSupabase().from("cheat_days").update({ cheat_on: date }).eq("id", id).is("cheat_on", null);
+    const { data, error } = await getSupabase().from("cheat_days").update({ cheat_on: date }).eq("id", id).is("cheat_on", null).select("id");
     setBusy(false);
     if (error) setError(error.code === "23505" ? "嗰日已經係放縱日喇，揀第日。" : error.message);
+    else if (!data || data.length === 0) setError(UPGRADE_MSG);
     else onChanged();
   }
 
@@ -76,9 +79,11 @@ export default function Quests({ userId, day, stamps, stampTotal, cheatExtra, ch
   async function cancelScheduled(id: string) {
     setBusy(true);
     setError(null);
-    const { error } = await getSupabase().from("cheat_days").update({ cheat_on: null }).eq("id", id);
+    const { data, error } = await getSupabase().from("cheat_days").update({ cheat_on: null }).eq("id", id).select("id");
     setBusy(false);
-    if (error) setError(error.message);
+    // 舊版資料庫：冇 update 權限（0 行被改，唔會報錯）或者 cheat_on 唔可以係空
+    if (error) setError(error.code === "23502" ? UPGRADE_MSG : error.message);
+    else if (!data || data.length === 0) setError(UPGRADE_MSG);
     else onChanged();
   }
 
@@ -197,6 +202,8 @@ export default function Quests({ userId, day, stamps, stampTotal, cheatExtra, ch
                 <p className="text-xs text-stone-500">想幾時用都得：今日，或者將來任何一日（例如生日、聚餐）。預約咗未到嘅日子可以取消，券會退返庫存。</p>
               </div>
             )}
+
+            {error && <p className={errorBox}>{error}</p>}
 
             {stamps.scheduled.length > 0 && (
               <ul className="space-y-1 text-sm">
