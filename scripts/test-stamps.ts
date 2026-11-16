@@ -129,53 +129,91 @@ test("運動加成：當日上限加返，所以超基本目標但喺加成內�
   assert.ok(dayBudget(plan, 300).calories >= BUDGET + 200);
   assert.equal(dayQualifies(h, "2026-11-05", plan), true);
 });
-test("連續 7 日合資格 → 可以領；用咗嘅印花去到第 7 日；今日唔計入", () => {
+test("連續 7 日合資格 → 自動賺 1 張券（記低第 7 個印花日）；今日唔計入；卡歸零", () => {
   const h = hist([...good(7), { date: TODAY, kcal: 100 }]);
   const s = stampState({ history: h, plan, today: TODAY, rows: [] });
-  assert.equal(s.count, 7);
-  assert.equal(s.canRedeem, true);
-  assert.equal(s.stampsThrough, addDays(TODAY, -1));
+  assert.equal(s.stampDays.length, 7);
+  assert.deepEqual(s.toMint, [addDays(TODAY, -1)]);
+  assert.equal(s.credits, 1);
+  assert.equal(s.progress, 0);
   assert.equal(STAMPS_FOR_CHEAT, 7);
 });
 test("6 個唔夠；中間有一日超標就斷（唔計嗰日）", () => {
-  assert.equal(stampState({ history: hist(good(6)), plan, today: TODAY, rows: [] }).canRedeem, false);
+  const six = stampState({ history: hist(good(6)), plan, today: TODAY, rows: [] });
+  assert.equal(six.credits, 0);
+  assert.equal(six.progress, 6);
   const days = good(7);
   days[3] = { ...days[3], kcal: BUDGET + 300 };
   const s = stampState({ history: hist(days), plan, today: TODAY, rows: [] });
-  assert.equal(s.count, 6);
-  assert.equal(s.canRedeem, false);
+  assert.equal(s.stampDays.length, 6);
+  assert.equal(s.credits, 0);
 });
 test("今日暫定：三樣做晒＋未超 → onTrack；超標就唔係", () => {
   const ok = stampState({ history: hist([{ date: TODAY, kcal: 1500 }]), plan, today: TODAY, rows: [] });
   assert.equal(ok.today.onTrack, true);
-  assert.equal(ok.count, 0);
+  assert.equal(ok.progress, 0);
   const over = stampState({ history: hist([{ date: TODAY, kcal: BUDGET + 50 }]), plan, today: TODAY, rows: [] });
   assert.equal(over.today.onTrack, false);
   assert.equal(over.today.withinBudget, false);
 });
-test("領咗之後重新計：用咗嘅 7 個唔再計，多出嚟嘅照計；放縱日當日唔蓋章", () => {
-  const h = hist(good(9)); // 昨日起計 9 日
+test("儲券：連續 15 日 → 2 張券（第 7、14 日）＋ 卡有 1 個；冇上限", () => {
+  const s = stampState({ history: hist(good(15)), plan, today: TODAY, rows: [] });
+  assert.deepEqual(s.toMint, [addDays(TODAY, -9), addDays(TODAY, -2)]);
+  assert.equal(s.credits, 2);
+  assert.equal(s.progress, 1);
+  const big = stampState({ history: hist(good(60)), plan, today: TODAY, rows: [] });
+  assert.equal(big.credits, 8); // 60 日 ＝ 8 張（還剩 4 個）
+  assert.equal(big.progress, 4);
+});
+test("券入咗庫存（cheat_on = null）：唔再重複計印花；庫存冇期限（幾耐之前賺都仍然有）", () => {
+  const h = hist(good(9));
   const through = addDays(TODAY, -3); // 7 個用到呢日
-  const s = stampState({ history: h, plan, today: TODAY, rows: [{ cheat_on: TODAY, stamps_through: through }] });
-  assert.equal(s.count, 2);
-  assert.equal(s.canRedeem, false);
-  assert.equal(s.cheatToday, true);
-  assert.equal(s.redeemed, 1);
-  // 放縱日本身唔計
+  const s = stampState({ history: h, plan, today: TODAY, rows: [{ id: "c1", cheat_on: null, stamps_through: through }] });
+  assert.equal(s.stampDays.length, 2);
+  assert.equal(s.progress, 2);
+  assert.equal(s.toMint.length, 0);
+  assert.equal(s.banked.length, 1);
+  assert.equal(s.credits, 1);
+  // 好耐之前賺嘅券（超過 120 日）都仍然喺庫存
+  const old = stampState({ history: hist([]), plan, today: TODAY, rows: [{ id: "c9", cheat_on: null, stamps_through: addDays(TODAY, -400) }] });
+  assert.equal(old.credits, 1);
+  assert.equal(old.banked[0].id, "c9");
+});
+test("用券：今日 → cheatToday；將來 → scheduled／cheatUpcoming；已用次數；放縱日當日唔計印花", () => {
+  const h = hist(good(9));
+  const through = addDays(TODAY, -3);
+  const today = stampState({ history: h, plan, today: TODAY, rows: [{ id: "a", cheat_on: TODAY, stamps_through: through }] });
+  assert.equal(today.cheatToday, true);
+  assert.equal(today.used, 1);
+  assert.equal(today.credits, 0);
+  const future = stampState({
+    history: h, plan, today: TODAY,
+    rows: [{ id: "a", cheat_on: addDays(TODAY, 30), stamps_through: through }, { id: "b", cheat_on: addDays(TODAY, 5), stamps_through: "2026-01-01" }, { id: "c", cheat_on: null, stamps_through: "2026-01-08" }],
+  });
+  assert.equal(future.cheatToday, false);
+  assert.equal(future.cheatUpcoming, addDays(TODAY, 5));
+  assert.deepEqual(future.scheduled.map((r) => r.id), ["b", "a"]);
+  assert.equal(future.banked.length, 1);
+  assert.equal(future.credits, 1);
+  assert.equal(future.used, 0);
+  // 放縱日本身唔計印花
   const day = addDays(TODAY, -1);
-  const s2 = stampState({ history: h, plan, today: TODAY, rows: [{ cheat_on: day, stamps_through: through }] });
-  assert.equal(s2.count, 1);
-  assert.equal(s2.lifetime, 8); // 9 日減放縱日
+  const s2 = stampState({ history: h, plan, today: TODAY, rows: [{ id: "a", cheat_on: day, stamps_through: through }] });
+  assert.equal(s2.stampDays.length, 1);
+  assert.equal(s2.lifetime, 8);
 });
-test("預約聽日用：cheatUpcoming；今日仲未係放縱日", () => {
-  const s = stampState({ history: hist(good(7)), plan, today: TODAY, rows: [{ cheat_on: addDays(TODAY, 1), stamps_through: addDays(TODAY, -1) }] });
-  assert.equal(s.cheatUpcoming, addDays(TODAY, 1));
-  assert.equal(s.cheatToday, false);
-  assert.equal(s.count, 0);
+test("取消預約（cheat_on 變返 null）→ 券退返庫存，印花唔會重複計", () => {
+  const h = hist(good(9));
+  const through = addDays(TODAY, -3);
+  const sched = stampState({ history: h, plan, today: TODAY, rows: [{ id: "a", cheat_on: addDays(TODAY, 3), stamps_through: through }] });
+  const cancelled = stampState({ history: h, plan, today: TODAY, rows: [{ id: "a", cheat_on: null, stamps_through: through }] });
+  assert.equal(sched.credits, 0);
+  assert.equal(cancelled.credits, 1);
+  assert.equal(cancelled.progress, sched.progress);
 });
-test("太舊嘅印花（超過 60 日）唔計", () => {
-  const old = Array.from({ length: 7 }, (_, i) => ({ date: addDays(TODAY, -100 + i), kcal: 1500 }));
-  assert.equal(stampState({ history: hist(old), plan, today: TODAY, rows: [] }).count, 0);
+test("太舊嘅未換券印花（超過 120 日）唔計", () => {
+  const old = Array.from({ length: 7 }, (_, i) => ({ date: addDays(TODAY, -200 + i), kcal: 1500 }));
+  assert.equal(stampState({ history: hist(old), plan, today: TODAY, rows: [] }).credits, 0);
 });
 
 console.log("放縱日");

@@ -1,7 +1,7 @@
 "use client";
 
 import type { Session } from "@supabase/supabase-js";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthForm from "@/components/AuthForm";
 import Calculator from "@/components/Calculator";
 import Exercise from "@/components/Exercise";
@@ -112,7 +112,7 @@ export default function Home() {
       supabase.from("food_logs").select("logged_on, meal_type, calories").gte("logged_on", from),
       supabase.from("exercise_logs").select("logged_on, calories").gte("logged_on", from),
       supabase.from("user_prefs").select("*").maybeSingle(),
-      supabase.from("cheat_days").select("cheat_on, stamps_through"),
+      supabase.from("cheat_days").select("id, cheat_on, stamps_through"),
     ]);
     const err = p.error ?? w.error ?? f.error ?? fh.error;
     if (err) {
@@ -218,6 +218,21 @@ export default function Home() {
     [history, basePlan, today, cheatRows],
   );
   const cheatExtra = basePlan ? cheatExtraKcal(basePlan) : 0;
+
+  // 每集齊 7 個印花自動換 1 張放縱日券，儲入庫存（冇期限）。同一批印花有 unique 防重複。
+  const mintedRef = useRef("");
+  useEffect(() => {
+    if (!userId || !cheatReady || !stamps || stamps.toMint.length === 0) return;
+    const key = stamps.toMint.join(",");
+    if (mintedRef.current === key) return;
+    mintedRef.current = key; // 失敗都唔即刻重試（避免死循環），重新開 app 會再試
+    void (async () => {
+      const { error } = await getSupabase()
+        .from("cheat_days")
+        .upsert(stamps.toMint.map((d) => ({ user_id: userId, stamps_through: d })), { onConflict: "user_id,stamps_through", ignoreDuplicates: true });
+      if (!error) void load();
+    })();
+  }, [userId, cheatReady, stamps, load]);
   const plan = basePlan && stamps?.cheatToday ? applyCheat(basePlan, cheatExtra) : basePlan;
 
   // 敏感時刻（食得太少、減得太快、超標、隔咗幾日先返嚟、65 歲或以上）：一律溫柔，唔 roast

@@ -43,6 +43,7 @@ export default function Quests({ userId, day, stamps, stampTotal, cheatExtra, ch
   const lv = levelFor(stampTotal);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pickDate, setPickDate] = useState("");
 
   async function rest() {
     setBusy(true);
@@ -61,23 +62,30 @@ export default function Quests({ userId, day, stamps, stampTotal, cheatExtra, ch
     else onChanged();
   }
 
-  async function redeem(when: "today" | "tomorrow") {
-    if (!stamps?.canRedeem || !stamps.stampsThrough) return;
+  /** 用一張庫存券：揀日子（今日或將來）。同一日只可以一張。 */
+  async function useCredit(id: string, date: string) {
     setBusy(true);
     setError(null);
-    const today = toDateStr();
-    const { error } = await getSupabase().from("cheat_days").insert({
-      user_id: userId,
-      cheat_on: when === "today" ? today : addDays(today, 1),
-      stamps_through: stamps.stampsThrough,
-    });
+    const { error } = await getSupabase().from("cheat_days").update({ cheat_on: date }).eq("id", id).is("cheat_on", null);
     setBusy(false);
-    if (error) setError(error.code === "23505" ? "嗰日已經係放縱日。" : error.message);
+    if (error) setError(error.code === "23505" ? "嗰日已經係放縱日喇，揀第日。" : error.message);
     else onChanged();
   }
 
-  const filled = Math.min(STAMPS_FOR_CHEAT, stamps?.count ?? 0);
-  const pending = !!stamps?.today.onTrack && filled < STAMPS_FOR_CHEAT;
+  /** 取消預約（將來嘅日子）：券退返庫存 */
+  async function cancelScheduled(id: string) {
+    setBusy(true);
+    setError(null);
+    const { error } = await getSupabase().from("cheat_days").update({ cheat_on: null }).eq("id", id);
+    setBusy(false);
+    if (error) setError(error.message);
+    else onChanged();
+  }
+
+  const filled = stamps?.progress ?? 0;
+  const pending = !!stamps?.today.onTrack;
+  const bankedCredit = stamps?.banked[0];
+  const todayStr = toDateStr();
 
   return (
     <div className="space-y-4">
@@ -118,7 +126,7 @@ export default function Quests({ userId, day, stamps, stampTotal, cheatExtra, ch
       <section className={card}>
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="font-bold">印花卡</h2>
-          <span className="text-sm text-stone-500">已領 {stamps?.redeemed ?? 0} 次放縱日</span>
+          <span className="text-sm text-stone-500">已用 {stamps?.used ?? 0} 張放縱日券</span>
         </div>
         <div className="flex justify-between gap-1.5">
           {Array.from({ length: STAMPS_FOR_CHEAT }, (_, i) => {
@@ -142,49 +150,71 @@ export default function Quests({ userId, day, stamps, stampTotal, cheatExtra, ch
           })}
         </div>
         <p className="mt-3 text-sm text-stone-600">
-          每日「三樣做晒 ＋ 食量唔超上限」就蓋一個章。集齊 {STAMPS_FOR_CHEAT} 個，可以領一日放縱日：當日上限
-          {cheatExtra > 0 ? `加 ${cheatExtra} kcal` : "維持原本"}（最多去到你嘅維持量，唔會變盈餘，唔會影響減重太多），陳伯同歡嬸當日好好人，唔挑剔。休息日一樣有印花。
+          每日「三樣做晒 ＋ 食量唔超上限」就蓋一個章。每集齊 {STAMPS_FOR_CHEAT} 個，自動賺 1 張放縱日券，儲起，冇數量上限、冇期限，幾時用都得。
+          用券嗰日，上限{cheatExtra > 0 ? `加 ${cheatExtra} kcal` : "維持原本"}（最多去到你嘅維持量，唔會變盈餘，唔會影響減重太多），陳伯同歡嬸當日好好人，唔挑剔。休息日一樣有印花。
         </p>
+        {stamps && <p className="mt-1 text-xs text-stone-500">仲差 {STAMPS_FOR_CHEAT - filled} 個印花賺下一張。印花只計到尋日，今日要過咗夜晚先蓋。</p>}
 
         {stamps?.cheatToday && <p className="mt-3 rounded-xl bg-amber-100 p-3 font-bold text-amber-900">🎉 今日係放縱日，慢慢食，食得開心。</p>}
-        {stamps?.cheatUpcoming && !stamps.cheatToday && (
-          <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">
-            放縱日已預約：{formatShort(stamps.cheatUpcoming)}。
-          </p>
-        )}
 
-        {stamps?.canRedeem && (
-          <div className="mt-3 space-y-2 rounded-xl bg-teal-50 p-3">
-            <p className="font-bold text-teal-900">集齊 {STAMPS_FOR_CHEAT} 個印花喇！領取放縱日：</p>
-            {cheatReady ? (
-              <div className="grid grid-cols-2 gap-2">
+        {stamps && (
+          <div className="mt-3 space-y-3 rounded-xl bg-teal-50 p-3">
+            <p className="font-bold text-teal-900">🎟️ 放縱日券庫存：{stamps.credits} 張</p>
+
+            {stamps.credits > 0 && !cheatReady && (
+              <p className="text-sm text-amber-800">資料庫未升級，用唔到券。請喺 Supabase SQL Editor 執行 supabase/schema_cheat.sql 一次。</p>
+            )}
+            {stamps.credits > 0 && cheatReady && !bankedCredit && (
+              <p className="text-sm text-teal-900">券入緊庫存，等一陣或者重新開 app 就見到。</p>
+            )}
+
+            {cheatReady && bankedCredit && (
+              <div className="space-y-2">
                 <button
                   disabled={busy || stamps.cheatToday}
-                  onClick={() => void redeem("today")}
-                  className="rounded-xl bg-teal-700 py-2.5 font-bold text-white active:bg-teal-800 disabled:opacity-50"
+                  onClick={() => void useCredit(bankedCredit.id!, todayStr)}
+                  className="w-full rounded-xl bg-teal-700 py-2.5 font-bold text-white active:bg-teal-800 disabled:opacity-50"
                 >
-                  今日用
+                  {stamps.cheatToday ? "今日已經係放縱日" : "今日用"}
                 </button>
-                <button
-                  disabled={busy || !!stamps.cheatUpcoming}
-                  onClick={() => void redeem("tomorrow")}
-                  className="rounded-xl bg-white py-2.5 font-bold text-teal-800 ring-1 ring-teal-300 active:bg-teal-100 disabled:opacity-50"
-                >
-                  聽日用
-                </button>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    aria-label="揀放縱日日子"
+                    min={todayStr}
+                    value={pickDate}
+                    onChange={(e) => setPickDate(e.target.value)}
+                    className="min-w-0 flex-1 rounded-xl border border-stone-300 bg-white px-3 py-2"
+                  />
+                  <button
+                    disabled={busy || !pickDate || pickDate < todayStr}
+                    onClick={() => void useCredit(bankedCredit.id!, pickDate)}
+                    className="shrink-0 rounded-xl bg-white px-4 py-2 font-bold text-teal-800 ring-1 ring-teal-300 active:bg-teal-100 disabled:opacity-50"
+                  >
+                    預約呢日
+                  </button>
+                </div>
+                <p className="text-xs text-stone-500">想幾時用都得：今日，或者將來任何一日（例如生日、聚餐）。預約咗未到嘅日子可以取消，券會退返庫存。</p>
               </div>
-            ) : (
-              <p className="text-sm text-amber-800">
-                資料庫未升級，領取唔到。請喺 Supabase SQL Editor 執行 supabase/schema_cheat.sql 一次。
-              </p>
+            )}
+
+            {stamps.scheduled.length > 0 && (
+              <ul className="space-y-1 text-sm">
+                {stamps.scheduled.map((r) => (
+                  <li key={r.id ?? r.cheat_on} className="flex items-center justify-between rounded-lg bg-white px-3 py-2">
+                    <span>🎉 已預約：{formatShort(r.cheat_on!)}</span>
+                    {r.id && (
+                      <button disabled={busy} onClick={() => void cancelScheduled(r.id!)} className="font-semibold text-teal-800 underline">
+                        取消
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         )}
-        {stamps && !stamps.canRedeem && (
-          <p className="mt-2 text-xs text-stone-500">
-            仲差 {STAMPS_FOR_CHEAT - filled} 個印花。印花只計到尋日，今日要過咗夜晚先蓋。
-          </p>
-        )}
+
         <p className="mt-2 text-sm font-semibold text-teal-800">
           街坊級數：{lv.name}
           {lv.next && (

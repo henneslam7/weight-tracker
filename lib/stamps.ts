@@ -2,7 +2,8 @@
 //
 // 蓋章條件：當日「今日三樣」做晒 ＋ 當日食量 ≤ 當日上限（基本目標 ＋ 運動加成）。
 // 今日未過完，所以只顯示「暫定」；由第二日起先正式計。
-// 集齊 7 個印花 → 可以領一個放縱日（今日或聽日用）。領咗之後，用咗嗰 7 個，多出嚟嘅照計落去。
+// 每集齊 7 個印花 → 自動賺 1 張「放縱日券」，儲入庫存：冇數量上限、冇期限，幾時用都得。
+// 用券：今日用，或者揀任何將來嘅日子預約（預約咗而仲未到，可以取消，券退返庫存）。
 // 放縱日當日唔計印花（係獎勵日）。
 //
 // 放縱日上限：減脂／體態重組 = 基本目標 ＋ 最多 400 kcal，而且唔會高過維持量（TDEE），
@@ -15,8 +16,8 @@ import { addDays } from "./date.ts";
 import { dayLogFor, tasksFor, type History } from "./gamify.ts";
 
 export const STAMPS_FOR_CHEAT = 7;
-/** 未用嘅印花最多追溯幾多日 */
-export const STAMP_WINDOW_DAYS = 60;
+/** 未換券嘅印花最多追溯幾多日（同 app 載入嘅記錄範圍一致）。換咗嘅券係永久儲起，冇期限 */
+export const STAMP_WINDOW_DAYS = 120;
 export const CHEAT_EXTRA_CAP = 400;
 export const CHEAT_EXTRA_FLAT = 300;
 
@@ -39,10 +40,15 @@ export function applyCheat(plan: Plan, extra: number): Plan {
   };
 }
 
+/**
+ * 一張放縱日券（資料庫一行）：
+ *  - cheat_on = null → 已賺到、儲起咗（冇限期，幾時用都得）
+ *  - cheat_on = 日期 → 已經揀咗嗰日用（今日或將來；將來嘅可以取消，券退返庫存）
+ */
 export interface CheatRow {
-  /** 放縱日嗰日 */
-  cheat_on: string;
-  /** 用咗嘅印花去到邊一日（包括） */
+  id?: string;
+  cheat_on: string | null;
+  /** 呢張券用咗嘅印花去到邊一日（包括）；用嚟防止同一批印花重複換券 */
   stamps_through: string | null;
 }
 
@@ -64,27 +70,34 @@ export interface TodayStamp {
 }
 
 export interface StampState {
-  /** 而家呢張卡已確認嘅印花日（到尋日為止，未計今日） */
+  /** 尚未換券嘅確認印花日（到尋日為止，未計今日） */
   stampDays: string[];
-  count: number;
-  canRedeem: boolean;
-  /** 領取時要記低：用咗嘅印花去到邊日 */
-  stampsThrough: string | null;
+  /** 呢張卡而家有幾多個（0–6）：每集齊 7 個自動換 1 張放縱日券 */
+  progress: number;
+  /** 要新增嘅券：每張記低「用咗嘅印花去到邊日」（第 7、14… 個印花日）。App 會自動寫入資料庫 */
+  toMint: string[];
+  /** 庫存：已儲起、未用嘅券（資料庫入面） */
+  banked: CheatRow[];
+  /** 可以用嘅券總數 ＝ 庫存 ＋ 等緊寫入嘅新券 */
+  credits: number;
+  /** 已揀日子、仲未到（> 今日）嘅券，按日期排 */
+  scheduled: CheatRow[];
+  /** 已經用過（包括今日）幾多次 */
+  used: number;
   today: TodayStamp;
   cheatToday: boolean;
-  /** 已領、日後先用嘅放縱日（最近一個） */
+  /** 最近一個預約日（> 今日） */
   cheatUpcoming: string | null;
-  /** 已領過幾多次 */
-  redeemed: number;
   /** 歷來（近 120 日）確認印花總數，用嚟計街坊級數 */
   lifetime: number;
 }
 
 export function stampState(a: { history: History; plan: Plan; today: string; rows: readonly CheatRow[] }): StampState {
   const { history: h, plan, today, rows } = a;
-  const cheatDates = new Set(rows.map((r) => r.cheat_on));
+  const cheatDates = new Set(rows.map((r) => r.cheat_on).filter((d): d is string => !!d));
   const yesterday = addDays(today, -1);
 
+  // 已經換過券嘅印花唔再計（庫存券、已用券都算）
   const through = rows.map((r) => r.stamps_through).filter((d): d is string => !!d).sort().at(-1) ?? null;
   const windowStart = addDays(today, -STAMP_WINDOW_DAYS);
   const from = through && addDays(through, 1) > windowStart ? addDays(through, 1) : windowStart;
@@ -98,22 +111,27 @@ export function stampState(a: { history: History; plan: Plan; today: string; row
   };
 
   const stampDays = days(from);
-  const canRedeem = stampDays.length >= STAMPS_FOR_CHEAT;
+  const toMint: string[] = [];
+  for (let i = STAMPS_FOR_CHEAT - 1; i < stampDays.length; i += STAMPS_FOR_CHEAT) toMint.push(stampDays[i]);
+
+  const banked = rows.filter((r) => r.cheat_on === null);
+  const scheduled = rows.filter((r): r is CheatRow & { cheat_on: string } => !!r.cheat_on && r.cheat_on > today).sort((x, y) => x.cheat_on.localeCompare(y.cheat_on));
   const t = tasksFor(dayLogFor(h, today)).done;
   const eaten = h.kcalByDate?.get(today) ?? 0;
   const budget = dayBudget(plan, h.burnedByDate?.get(today) ?? 0).calories;
   const within = eaten <= budget;
-  const upcoming = [...cheatDates].filter((d) => d > today).sort()[0] ?? null;
 
   return {
     stampDays,
-    count: stampDays.length,
-    canRedeem,
-    stampsThrough: canRedeem ? stampDays[STAMPS_FOR_CHEAT - 1] : null,
+    progress: stampDays.length % STAMPS_FOR_CHEAT,
+    toMint,
+    banked,
+    credits: banked.length + toMint.length,
+    scheduled,
+    used: rows.filter((r) => !!r.cheat_on && r.cheat_on <= today).length,
     today: { tasksDone: t, withinBudget: within, onTrack: t && within && !cheatDates.has(today), eaten, budget },
     cheatToday: cheatDates.has(today),
-    cheatUpcoming: upcoming,
-    redeemed: rows.length,
-    lifetime: days(addDays(today, -120)).length,
+    cheatUpcoming: scheduled[0]?.cheat_on ?? null,
+    lifetime: days(addDays(today, -STAMP_WINDOW_DAYS)).length,
   };
 }
