@@ -336,7 +336,7 @@ export default function Home() {
         />
       )}
       {tab === "weight" && (
-        <Weight userId={uid} logs={logs} targetKg={profile.target_weight_kg} onChanged={() => void load()} />
+        <Weight userId={uid} logs={logs} targetKg={profile.target_weight_kg} profile={profile} onChanged={() => void load()} />
       )}
       {tab === "calc" && (
         <Calculator

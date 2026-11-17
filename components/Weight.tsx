@@ -5,7 +5,8 @@ import { movingAverage, weeklyTrendKg } from "@/lib/calc";
 import { savedMessage, WEIGHT_EMPTY } from "@/lib/copy";
 import { formatShort, isValidDateStr, toDateStr } from "@/lib/date";
 import { getSupabase } from "@/lib/supabase";
-import type { WeightLog } from "@/lib/types";
+import type { Profile, WeightLog } from "@/lib/types";
+import BodyScans from "./BodyScans";
 import WeightChart from "./WeightChart";
 import { btnPrimary, card, errorBox, input, label } from "./ui";
 
@@ -13,10 +14,11 @@ interface Props {
   userId: string;
   logs: WeightLog[]; // 升序
   targetKg: number | null;
+  profile: Profile;
   onChanged: () => void;
 }
 
-export default function Weight({ userId, logs, targetKg, onChanged }: Props) {
+export default function Weight({ userId, logs, targetKg, profile, onChanged }: Props) {
   const [date, setDate] = useState(toDateStr());
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -144,6 +146,8 @@ export default function Weight({ userId, logs, targetKg, onChanged }: Props) {
           </ul>
         )}
       </section>
+
+      <BodyScans userId={userId} profile={profile} onChanged={onChanged} />
     </div>
   );
 }

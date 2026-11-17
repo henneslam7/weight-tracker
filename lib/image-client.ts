@@ -83,3 +83,41 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
     dec.close();
   }
 }
+
+/**
+ * 磅報告截圖：通常係好長嘅直向長圖（例如 1080×5500）。
+ * 唔可以用「最長邊 1280」壓，否則字會縮到睇唔清；改為按闊度壓（最闊 1080），高度保留。
+ */
+export async function prepareScreenshot(file: File): Promise<PreparedImage> {
+  if (!file.type.startsWith("image/")) throw new Error("請揀圖片檔案");
+  if (file.size > 25_000_000) throw new Error("圖片太大，請揀細啲嘅圖");
+  const dec = await decode(file).catch(() => {
+    throw new Error("讀取唔到圖片，請試下另一張");
+  });
+  try {
+    const attempts: [number, number][] = [
+      [1080, 0.8],
+      [1080, 0.65],
+      [900, 0.6],
+      [720, 0.55],
+    ];
+    for (const [width, quality] of attempts) {
+      const scale = Math.min(1, width / dec.w, 8000 / dec.h);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(dec.w * scale));
+      canvas.height = Math.max(1, Math.round(dec.h * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("瀏覽器唔支援處理圖片");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(dec.source, 0, 0, canvas.width, canvas.height);
+      const blob = await toBlob(canvas, quality);
+      if (blob.size <= MAX_IMAGE_BYTES) {
+        return { mimeType: "image/jpeg", data: await toBase64(blob), previewUrl: URL.createObjectURL(blob) };
+      }
+    }
+    throw new Error("圖片壓縮後仍然太大，請試下另一張");
+  } finally {
+    dec.close();
+  }
+}
